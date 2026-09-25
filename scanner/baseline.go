@@ -316,11 +316,11 @@ func guard(b *Baseline, s *Scan, ref string) (old *Baseline, problems, notes []s
 		return nil, []string{err.Error()}, nil
 	}
 	// A cap follows only content that is really there, never a fingerprint written by
-	// hand: the guard pairs moves by the code's own hashes, and check pairs them by
-	// fingerprints that must be the code's or ref's.
+	// hand. The guard pairs moves by the code's own hashes. Check pairs them by the
+	// fingerprints of code that is gone, which must be ref's.
 	for _, id := range sortedKeys(b.Fingerprints) {
-		if f := b.Fingerprints[id]; f != s.Content[id] && f != old.Fingerprints[id] {
-			problems = append(problems, fmt.Sprintf("fingerprints/%s matches neither the code nor %s; only smells baseline writes fingerprints", id, ref))
+		if f := b.Fingerprints[id]; s.Content[id] == "" && f != old.Fingerprints[id] {
+			problems = append(problems, fmt.Sprintf("fingerprints/%s is for code that is gone, and differs from %s; only smells baseline writes fingerprints", id, ref))
 		}
 	}
 	actual := *b
@@ -359,10 +359,12 @@ func codeChanged(b *Baseline, ref string) (bool, error) {
 		if exec.Command("git", append([]string{"diff", "--quiet", ref, "--"}, paths...)...).Run() != nil {
 			return true, nil
 		}
+		out, err := exec.Command("git", append([]string{"ls-files", "--others", "--exclude-standard", "--"}, paths...)...).Output()
+		if err != nil || len(out) > 0 {
+			return len(out) > 0, err
+		}
 	}
-	args := append([]string{"ls-files", "--others", "--exclude-standard", "--"}, b.Files.Include...)
-	out, err := exec.Command("git", args...).Output()
-	return len(out) > 0, err
+	return false, nil
 }
 
 func excepted(b *Baseline, key string) bool {

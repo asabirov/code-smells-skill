@@ -237,6 +237,26 @@ func TestProjectBunfigDoesNotRun(t *testing.T) {
 	}
 }
 
+// TestShrinkTwice lowers Letter's cap with baseline, then shrinks it again without
+// running baseline: its fingerprint is stale, which must not fail the check.
+func TestShrinkTwice(t *testing.T) {
+	measured(t)
+	grade, err := os.ReadFile("grade/grade.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	once := strings.Replace(string(grade), "case score > 85 && curved:", "case score > 85:", 1)
+	write(t, "grade/grade.go", once)
+	firstBaseline(t)
+	write(t, "grade/grade.go", strings.Replace(once, "\t} else if score >= 70 {\n\t\treturn \"C\"\n", "", 1))
+	if b, _ := loadBaseline(); b.Caps[production][complexity]["grade/grade.go:Letter"] != 17 {
+		t.Fatalf("Letter's cap is %d, want 17", b.Caps[production][complexity]["grade/grade.go:Letter"])
+	}
+	if problems, _, err := check(); err != nil || len(problems) > 0 {
+		t.Fatalf("check after shrinking twice: %v %q", err, problems)
+	}
+}
+
 // TestCapFollowsMovedCode moves the capped grade.go:Letter to another file, or renames
 // it, without changing its body: the check passes, baseline moves the cap, and the
 // moved cap is not looser than main's. Growing it after the move still fails.
@@ -405,7 +425,7 @@ func TestForgedFingerprintFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	editBaseline(t, func(b *Baseline) { b.Fingerprints["grade/grade.go:Letter"] = s.Content["grade/other.go:Other"] })
-	if problems, _, _ := check(); !strings.Contains(strings.Join(problems, "\n"), "fingerprints/grade/grade.go:Letter matches neither") {
+	if problems, _, _ := check(); !strings.Contains(strings.Join(problems, "\n"), "fingerprints/grade/grade.go:Letter is for code that is gone") {
 		t.Fatalf("a forged fingerprint passed: %q", problems)
 	}
 }
