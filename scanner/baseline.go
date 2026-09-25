@@ -315,7 +315,14 @@ func guard(b *Baseline, s *Scan, ref string) (old *Baseline, problems, notes []s
 	if err != nil {
 		return nil, []string{err.Error()}, nil
 	}
-	// A cap follows only content that is really there, never a fingerprint written by hand.
+	// A cap follows only content that is really there, never a fingerprint written by
+	// hand: the guard pairs moves by the code's own hashes, and check pairs them by
+	// fingerprints that must be the code's or ref's.
+	for _, id := range sortedKeys(b.Fingerprints) {
+		if f := b.Fingerprints[id]; f != s.Content[id] && f != old.Fingerprints[id] {
+			problems = append(problems, fmt.Sprintf("fingerprints/%s matches neither the code nor %s; only smells baseline writes fingerprints", id, ref))
+		}
+	}
 	actual := *b
 	actual.Fingerprints = s.Content
 	keys := loosenings(&actual, old)
@@ -346,12 +353,14 @@ func guard(b *Baseline, s *Scan, ref string) (old *Baseline, problems, notes []s
 
 // codeChanged says whether any file under files.include, or go.mod, which decides what
 // counts as a local import, differs from ref, including files git does not track yet.
+// go.mod is checked on its own, so an exclude pathspec in files.include cannot hide it.
 func codeChanged(b *Baseline, ref string) (bool, error) {
-	paths := append([]string{"go.mod"}, b.Files.Include...)
-	if err := exec.Command("git", append([]string{"diff", "--quiet", ref, "--"}, paths...)...).Run(); err != nil {
-		return true, nil
+	for _, paths := range [][]string{{"go.mod"}, b.Files.Include} {
+		if exec.Command("git", append([]string{"diff", "--quiet", ref, "--"}, paths...)...).Run() != nil {
+			return true, nil
+		}
 	}
-	args := append([]string{"ls-files", "--others", "--exclude-standard", "--"}, paths...)
+	args := append([]string{"ls-files", "--others", "--exclude-standard", "--"}, b.Files.Include...)
 	out, err := exec.Command("git", args...).Output()
 	return len(out) > 0, err
 }

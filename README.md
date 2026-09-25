@@ -2,7 +2,7 @@
 
 This skill keeps each repository’s code size, complexity, duplication, and imports within committed limits. It measures Go and TypeScript code. The design choice is to keep one shared scanner in the skill and store only each project’s `.smells.json` plus a Makefile target, so every repository measures the same way and none has to install the tools. The alternative, copying the scanner into every repository, was turned down because the copies would drift apart.
 
-Code that is already over a limit may become smaller, but it may not grow. New code must remain within the configured limits. A cap belongs to the code, not to its name: a function or file that moves or is renamed without changing keeps its cap.
+Code that is already over a limit may become smaller, but it may not grow. New code must remain within the configured limits. A cap belongs to the code, not to its name: a function or file that moves or is renamed without changing keeps its cap. The match is by a hash of the content, so code that is moved and edited in the same change counts as new; move it first and edit it in the next change.
 
 ## Install and use
 

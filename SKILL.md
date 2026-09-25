@@ -19,7 +19,7 @@ description: Measure code size, complexity, duplication and imports in a Go or T
 ## The rules the check enforces
 
 - If a function, file or package already exceeds a limit, `.smells.json` records a cap for it. The code may become smaller, but it must not grow beyond that cap.
-- A function or file that moves or is renamed with the same content keeps its cap. `check` notes the move, and `baseline` moves the cap to the new name.
+- A function or file that moves or is renamed with the same content keeps its cap. `check` notes the move, and `baseline` moves the cap to the new name. The match is by content, so move or rename code in one change and edit it in the next; a moved function whose body also changed counts as new.
 - New code must remain within these limits: 80 lines per function, 500 lines per file, complexity 15, 8 local imports per package, no duplicated stretch of 100 tokens, and no import cycle.
 - The number of items above each limit, and their total excess, must not increase. Improving one hotspot does not permit a new problem elsewhere.
 - A branch's `.smells.json` must not be looser than the version on the default branch (`origin/HEAD`), unless `exceptions` lists the loosened key with a `reason` and an `issue`.

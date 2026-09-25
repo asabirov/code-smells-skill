@@ -339,6 +339,22 @@ func TestRemeasure(t *testing.T) {
 	if err := os.Remove("grade/extra.go"); err != nil {
 		t.Fatal(err)
 	}
+	editBaseline(t, func(b *Baseline) { b.Files.Include = append(b.Files.Include, ":(exclude)go.mod") })
+	commit(t)
+	if err := runBaseline(); err != nil {
+		t.Fatal(err)
+	}
+	editBaseline(t, func(b *Baseline) { b.Tools["definitions"] = "0123456789abcdef" })
+	commit(t)
+	if err := runBaseline(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(candidatePath, baselinePath); err != nil {
+		t.Fatal(err)
+	}
+	if problems, _, err := check(); err != nil || len(problems) > 0 {
+		t.Fatalf("check of a re-measure: %v %q", err, problems)
+	}
 	write(t, "go.mod", "module example.com/other\n\ngo 1.26\n")
 	if problems, _, _ := check(); !strings.Contains(strings.Join(problems, "\n"), "differs from origin/main") {
 		t.Fatalf("a re-measure with a go.mod change passed: %q", problems)
@@ -369,5 +385,27 @@ func TestForgedMoveFails(t *testing.T) {
 	})
 	if problems, _, _ := check(); !strings.Contains(strings.Join(problems, "\n"), "caps/production/complexity/grade/other.go:Other is looser") {
 		t.Fatalf("a forged move passed: %q", problems)
+	}
+}
+
+// TestForgedFingerprintFails keeps Letter's cap key after deleting it, and rewrites its
+// fingerprint to a different function's hash, so check would take that one for a move.
+func TestForgedFingerprintFails(t *testing.T) {
+	measured(t)
+	if err := os.Remove("grade/grade.go"); err != nil {
+		t.Fatal(err)
+	}
+	write(t, "grade/other.go", "package grade\n\nfunc Other(a bool) int {\n"+repeat("if a {\n\t\ta = !a\n\t}", 16)+"\treturn 0\n}\n")
+	b, err := loadBaseline()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := scan(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	editBaseline(t, func(b *Baseline) { b.Fingerprints["grade/grade.go:Letter"] = s.Content["grade/other.go:Other"] })
+	if problems, _, _ := check(); !strings.Contains(strings.Join(problems, "\n"), "fingerprints/grade/grade.go:Letter matches neither") {
+		t.Fatalf("a forged fingerprint passed: %q", problems)
 	}
 }
