@@ -173,13 +173,13 @@ func aggregate(values map[string]int, limit int) Aggregate {
 	return a
 }
 
-// moves pairs each item in now that caps does not cap with a capped item that is gone
-// from now and had the same content (fingerprints), so a cap follows code that was
-// moved or renamed without growing.
+// moves pairs each item in now that caps does not cap with a capped item whose code is
+// gone (it has no content) and had the same content (fingerprints), so a cap follows
+// code that was moved or renamed without growing.
 func moves(caps, now map[string]int, content, fingerprints map[string]string) map[string]string {
 	gone := map[string][]string{}
 	for _, id := range sortedKeys(caps) {
-		if _, ok := now[id]; !ok && fingerprints[id] != "" {
+		if _, ok := now[id]; !ok && content[id] == "" && fingerprints[id] != "" {
 			gone[fingerprints[id]] = append(gone[fingerprints[id]], id)
 		}
 	}

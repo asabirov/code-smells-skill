@@ -229,6 +229,11 @@ func TestMovedCapFollowsContent(t *testing.T) {
 			t.Errorf("%s: problems %q, want %q", c.name, got, c.want)
 		}
 	}
+	s := testScan(map[string]int{"b.go:Big": 40})
+	s.Content["b.go:Big"], s.Content["a.go:Big"] = "body1", "body3"
+	if problems, _ := compare(b, s); len(problems) == 0 {
+		t.Error("a cap moved away from code that still exists")
+	}
 	branch := testBaseline()
 	branch.Caps[production][complexity] = map[string]int{"b.go:Big": 40}
 	branch.Fingerprints = map[string]string{"b.go:Big": "body1"}
