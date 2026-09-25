@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/parser"
+	"go/scanner"
 	"go/token"
 	"os"
 	"path"
@@ -42,7 +43,7 @@ func scanGo(s *Scan, r *Rules, paths []string, graph map[string]map[string]bool)
 		}
 		scope := r.scope(p)
 		s.set(scope, fileLines, p, physicalLines(src))
-		functions += goFunctions(s, scope, p, src, fset, f)
+		functions += goFunctions(s, scope, p, codeLines(src), fset, f)
 		if scope == production {
 			goImports(graph, p, f, module)
 		}
@@ -54,8 +55,9 @@ func scanGo(s *Scan, r *Rules, paths []string, graph map[string]map[string]bool)
 	return nil
 }
 
-// goFunctions measures each function with a body and returns how many there were.
-func goFunctions(s *Scan, scope, p string, src []byte, fset *token.FileSet, f *ast.File) int {
+// goFunctions measures each function with a body and returns how many there were. Its
+// lines are those that hold code, which code marks.
+func goFunctions(s *Scan, scope, p string, code map[int]bool, fset *token.FileSet, f *ast.File) int {
 	seen, n := map[string]int{}, 0
 	for _, d := range f.Decls {
 		fn, ok := d.(*ast.FuncDecl)
@@ -64,12 +66,38 @@ func goFunctions(s *Scan, scope, p string, src []byte, fset *token.FileSet, f *a
 		}
 		n++
 		id := uniqueID(seen, p+":"+goName(fn))
-		lines := fset.Position(fn.End()).Line - fset.Position(fn.Pos()).Line + 1
+		lines := 0
+		for l := fset.Position(fn.Pos()).Line; l <= fset.Position(fn.End()).Line; l++ {
+			if code[l] {
+				lines++
+			}
+		}
 		s.set(scope, functionLines, id, lines)
 		s.set(scope, complexity, id, gocognit.Complexity(fn))
-		s.Content[id] = contentHash(src[fset.Position(fn.Body.Lbrace).Offset:fset.Position(fn.Body.Rbrace).Offset])
 	}
 	return n
+}
+
+// codeLines marks each line of src that holds a token other than a comment, so comment
+// and blank lines do not count. A multi-line string marks every line it spans.
+func codeLines(src []byte) map[int]bool {
+	var sc scanner.Scanner
+	file := token.NewFileSet().AddFile("", -1, len(src))
+	sc.Init(file, src, nil, 0)
+	code := map[int]bool{}
+	for {
+		pos, tok, lit := sc.Scan()
+		if tok == token.EOF {
+			return code
+		}
+		if tok == token.SEMICOLON && lit == "\n" {
+			continue
+		}
+		first := file.Line(pos)
+		for l := first; l <= first+strings.Count(lit, "\n"); l++ {
+			code[l] = true
+		}
+	}
 }
 
 // goName is Name for a function and Type.Name for a method, whatever the receiver's

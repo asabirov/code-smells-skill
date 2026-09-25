@@ -11,22 +11,21 @@ import (
 	"reflect"
 	"runtime"
 	"slices"
+	"sort"
 	"strings"
 )
 
 // Baseline is .smells.json: the limits, and a cap for every item already over one.
 // MeasuredBy names the skill build and Go that last wrote it, for people only.
-// Fingerprints holds a hash of each capped item's content, so its cap can follow it.
 type Baseline struct {
-	Tools        map[string]string                    `json:"tools"`
-	MeasuredBy   string                               `json:"measured_by,omitempty"`
-	Languages    []string                             `json:"languages"`
-	Files        Rules                                `json:"files"`
-	Budgets      map[string]map[string]int            `json:"budgets"`
-	Aggregate    map[string]map[string]Aggregate      `json:"aggregate"`
-	Caps         map[string]map[string]map[string]int `json:"caps"`
-	Fingerprints map[string]string                    `json:"fingerprints,omitempty"`
-	Exceptions   []Exception                          `json:"exceptions"`
+	Tools      map[string]string                    `json:"tools"`
+	MeasuredBy string                               `json:"measured_by,omitempty"`
+	Languages  []string                             `json:"languages"`
+	Files      Rules                                `json:"files"`
+	Budgets    map[string]map[string]int            `json:"budgets"`
+	Aggregate  map[string]map[string]Aggregate      `json:"aggregate"`
+	Caps       map[string]map[string]map[string]int `json:"caps"`
+	Exceptions []Exception                          `json:"exceptions"`
 }
 
 // Aggregate is how many items in a scope and metric are over the limit, and by how much
@@ -128,7 +127,7 @@ func compareMetric(b *Baseline, s *Scan, scope, metric string) (problems, notes 
 	limit := b.Budgets[scope][metric]
 	caps := b.Caps[scope][metric]
 	values := s.Values[scope][metric]
-	moved := moves(caps, values, s.Content, b.Fingerprints)
+	moved := inherit(caps, uncapped(values, caps, limit), s)
 	for _, id := range sortedKeys(values) {
 		v := values[id]
 		limitCap, capped := caps[id]
@@ -149,7 +148,7 @@ func compareMetric(b *Baseline, s *Scan, scope, metric string) (problems, notes 
 	}
 	for _, id := range sortedKeys(caps) {
 		if to, ok := movedTo[id]; ok {
-			notes = append(notes, fmt.Sprintf("%s %s: %s moved to %s; smells baseline moves its cap", scope, metric, id, to))
+			notes = append(notes, fmt.Sprintf("%s %s: %s is gone, and %s takes its cap of %d; smells baseline moves the cap", scope, metric, id, to, caps[id]))
 		} else if values[id] < caps[id] {
 			notes = append(notes, fmt.Sprintf("%s %s: %s is %d, below its cap of %d; smells baseline can lower the cap", scope, metric, id, values[id], caps[id]))
 		}
@@ -173,41 +172,68 @@ func aggregate(values map[string]int, limit int) Aggregate {
 	return a
 }
 
-// moves pairs each item in now that caps does not cap with a capped item whose code is
-// gone (it has no content) and had the same content (fingerprints), so a cap follows
-// code that was moved or renamed without growing.
-func moves(caps, now map[string]int, content, fingerprints map[string]string) map[string]string {
-	gone := map[string][]string{}
+// inherit gives items in want, which have no cap of their own, the caps of removed items:
+// caps whose item scan s no longer measures at all. An item may take a cap no smaller
+// than its value. Smaller items choose first and each takes the smallest cap that fits,
+// so a function split in two can use two freed caps. The match is by size only, so a
+// new function may take a removed one's cap; the totals still cannot grow, and review
+// names it.
+func inherit(caps, want map[string]int, s *Scan) map[string]string {
+	var free []string
 	for _, id := range sortedKeys(caps) {
-		if _, ok := now[id]; !ok && content[id] == "" && fingerprints[id] != "" {
-			gone[fingerprints[id]] = append(gone[fingerprints[id]], id)
+		if !s.measures(id) {
+			free = append(free, id)
 		}
 	}
+	sort.SliceStable(free, func(i, j int) bool { return caps[free[i]] < caps[free[j]] })
+	ids := sortedKeys(want)
+	sort.SliceStable(ids, func(i, j int) bool { return want[ids[i]] < want[ids[j]] })
 	pairs := map[string]string{}
-	for _, id := range sortedKeys(now) {
-		from := gone[content[id]]
-		if _, ok := caps[id]; ok || len(from) == 0 {
-			continue
+	for _, id := range ids {
+		if i := slices.IndexFunc(free, func(f string) bool { return caps[f] >= want[id] }); i >= 0 {
+			pairs[id] = free[i]
+			free = slices.Delete(free, i, i+1)
 		}
-		pairs[id], gone[content[id]] = from[0], from[1:]
 	}
 	return pairs
 }
 
-// capsFor caps every item now over its limit at its current value, and records its
-// fingerprint. When lowering, an item keeps a cap only if it had one or moved from one;
-// compare has already refused anything new.
-func capsFor(b *Baseline, s *Scan, lowering bool) (map[string]map[string]map[string]int, map[string]map[string]Aggregate, map[string]string) {
+// uncapped keeps the values over limit that caps does not cap.
+func uncapped(values, caps map[string]int, limit int) map[string]int {
+	out := map[string]int{}
+	for id, v := range values {
+		if _, ok := caps[id]; !ok && v > limit {
+			out[id] = v
+		}
+	}
+	return out
+}
+
+// measures says whether any scope or metric of the scan still measures id.
+func (s *Scan) measures(id string) bool {
+	for _, metrics := range s.Values {
+		for _, values := range metrics {
+			if _, ok := values[id]; ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// capsFor caps every item now over its limit at its current value. When lowering, an
+// item keeps a cap only if it had one or took a removed item's; compare has already
+// refused anything new.
+func capsFor(b *Baseline, s *Scan, lowering bool) (map[string]map[string]map[string]int, map[string]map[string]Aggregate) {
 	caps := map[string]map[string]map[string]int{}
 	aggregates := map[string]map[string]Aggregate{}
-	var fingerprints map[string]string
 	for scope, budgets := range b.Budgets {
 		caps[scope], aggregates[scope] = map[string]map[string]int{}, map[string]Aggregate{}
 		for metric, limit := range budgets {
 			values := s.Values[scope][metric]
 			caps[scope][metric] = map[string]int{}
 			aggregates[scope][metric] = aggregate(values, limit)
-			moved := moves(b.Caps[scope][metric], values, s.Content, b.Fingerprints)
+			moved := inherit(b.Caps[scope][metric], uncapped(values, b.Caps[scope][metric], limit), s)
 			for id, v := range values {
 				_, had := b.Caps[scope][metric][id]
 				_, isMove := moved[id]
@@ -215,16 +241,10 @@ func capsFor(b *Baseline, s *Scan, lowering bool) (map[string]map[string]map[str
 					continue
 				}
 				caps[scope][metric][id] = v
-				if s.Content[id] != "" {
-					if fingerprints == nil {
-						fingerprints = map[string]string{}
-					}
-					fingerprints[id] = s.Content[id]
-				}
 			}
 		}
 	}
-	return caps, aggregates, fingerprints
+	return caps, aggregates
 }
 
 // runBaseline writes .smells.candidate.json for a person to review and move into place.
@@ -247,13 +267,13 @@ func runBaseline() error {
 	switch {
 	case !measured:
 		candidate.Tools = s.Tools
-		candidate.Caps, candidate.Aggregate, candidate.Fingerprints = capsFor(b, s, false)
+		candidate.Caps, candidate.Aggregate = capsFor(b, s, false)
 	case !maps.Equal(b.Tools, s.Tools):
 		candidate.Tools = s.Tools
-		candidate.Caps, candidate.Aggregate, candidate.Fingerprints = capsFor(b, s, false)
+		candidate.Caps, candidate.Aggregate = capsFor(b, s, false)
 		fmt.Printf("re-measured with %s; %s was measured with %s\n", formatMap(s.Tools), baselinePath, formatMap(b.Tools))
 		fmt.Printf("Against %s: ", baselinePath)
-		printChanges(os.Stdout, b, &candidate)
+		printChanges(os.Stdout, b, &candidate, s)
 		fmt.Println("Commit only this file, on a branch from the latest default branch: the check refuses a re-measure whose measured code differs from the default branch.")
 	default:
 		problems, notes := compare(b, s)
@@ -263,8 +283,8 @@ func runBaseline() error {
 			}
 			return fmt.Errorf("did not write %s, because the code is over %s; fix the code, or raise the cap by hand with an exception", candidatePath, baselinePath)
 		}
-		candidate.Caps, candidate.Aggregate, candidate.Fingerprints = capsFor(b, s, true)
-		if reflect.DeepEqual([]any{b.Caps, b.Aggregate, b.Fingerprints}, []any{candidate.Caps, candidate.Aggregate, candidate.Fingerprints}) {
+		candidate.Caps, candidate.Aggregate = capsFor(b, s, true)
+		if reflect.DeepEqual([]any{b.Caps, b.Aggregate}, []any{candidate.Caps, candidate.Aggregate}) {
 			fmt.Println("nothing to change:", baselinePath, "already matches the code")
 			return nil
 		}
@@ -315,17 +335,7 @@ func guard(b *Baseline, s *Scan, ref string) (old *Baseline, problems, notes []s
 	if err != nil {
 		return nil, []string{err.Error()}, nil
 	}
-	// A cap follows only content that is really there, never a fingerprint written by
-	// hand. The guard pairs moves by the code's own hashes. Check pairs them by stored
-	// fingerprints, so any that differ from ref's must be the code's own.
-	for _, id := range sortedKeys(b.Fingerprints) {
-		if f := b.Fingerprints[id]; f != old.Fingerprints[id] && f != s.Content[id] {
-			problems = append(problems, fmt.Sprintf("fingerprints/%s matches neither the code nor %s; run smells baseline, which writes fingerprints from the code", id, ref))
-		}
-	}
-	actual := *b
-	actual.Fingerprints = s.Content
-	keys := loosenings(&actual, old)
+	keys := loosenings(b, old, s)
 	if !maps.Equal(b.Tools, old.Tools) {
 		changed, err := codeChanged(b, ref)
 		if err != nil {
@@ -334,7 +344,7 @@ func guard(b *Baseline, s *Scan, ref string) (old *Baseline, problems, notes []s
 		if changed {
 			return old, []string{fmt.Sprintf("this branch re-measures %s, but its measured code differs from %s; re-measure in a change of its own, on top of %s", baselinePath, ref, ref)}, nil
 		}
-		if caps, aggregates, _ := capsFor(b, s, false); !reflect.DeepEqual([]any{caps, aggregates}, []any{b.Caps, b.Aggregate}) {
+		if caps, aggregates := capsFor(b, s, false); !reflect.DeepEqual([]any{caps, aggregates}, []any{b.Caps, b.Aggregate}) {
 			return old, []string{fmt.Sprintf("this branch re-measures %s, but its caps are not what smells baseline measures; run smells baseline and move the candidate into place", baselinePath)}, nil
 		}
 		notes = append(notes, fmt.Sprintf("this branch re-measures %s with %s (on %s: %s); smells review --base %s shows the old and new numbers",
@@ -373,8 +383,9 @@ func excepted(b *Baseline, key string) bool {
 	})
 }
 
-// loosenings lists every way b allows more than old does.
-func loosenings(b, old *Baseline) []string {
+// loosenings lists every way b allows more than old does. A new cap is not looser when
+// it takes the cap of an item that scan s no longer measures and is no larger.
+func loosenings(b, old *Baseline, s *Scan) []string {
 	var keys []string
 	if !maps.Equal(b.Tools, old.Tools) {
 		keys = append(keys, "tools")
@@ -385,13 +396,13 @@ func loosenings(b, old *Baseline) []string {
 	}
 	for _, scope := range sortedKeys(old.Budgets) {
 		for _, metric := range sortedKeys(old.Budgets[scope]) {
-			keys = append(keys, looserMetric(b, old, scope, metric)...)
+			keys = append(keys, looserMetric(b, old, s, scope, metric)...)
 		}
 	}
 	return keys
 }
 
-func looserMetric(b, old *Baseline, scope, metric string) []string {
+func looserMetric(b, old *Baseline, s *Scan, scope, metric string) []string {
 	var keys []string
 	path := scope + "/" + metric
 	if limit, ok := b.Budgets[scope][metric]; !ok || limit > old.Budgets[scope][metric] {
@@ -402,7 +413,9 @@ func looserMetric(b, old *Baseline, scope, metric string) []string {
 		keys = append(keys, "aggregate/"+path)
 	}
 	oldCaps, caps := old.Caps[scope][metric], b.Caps[scope][metric]
-	moved := moves(oldCaps, caps, b.Fingerprints, old.Fingerprints)
+	freed := maps.Clone(oldCaps)
+	maps.DeleteFunc(freed, func(id string, _ int) bool { _, kept := caps[id]; return kept })
+	moved := inherit(freed, uncapped(caps, oldCaps, -1), s)
 	for _, id := range sortedKeys(caps) {
 		was, ok := oldCaps[id]
 		if from, isMove := moved[id]; isMove {

@@ -140,9 +140,7 @@ func review(w io.Writer, base string) error {
 	if old == nil {
 		fmt.Fprintf(w, "\n%s has no %s, so there is nothing to compare the baseline with.\n", base, baselinePath)
 	} else {
-		actual := *b
-		actual.Fingerprints = s.Content
-		reviewBaseline(w, base, old, &actual)
+		reviewBaseline(w, base, old, b, s)
 		reviewHotspots(w, base, old, b, s)
 	}
 	fmt.Fprintln(w, worstHeading)
@@ -151,9 +149,9 @@ func review(w io.Writer, base string) error {
 
 // reviewBaseline lists how the branch's baseline differs from base's, and the reasons
 // given for any loosening.
-func reviewBaseline(w io.Writer, base string, old, b *Baseline) {
+func reviewBaseline(w io.Writer, base string, old, b *Baseline, s *Scan) {
 	fmt.Fprintf(w, "\nBaseline against %s: ", base)
-	printChanges(w, old, b)
+	printChanges(w, old, b, s)
 	var added []string
 	for _, e := range b.Exceptions {
 		if !slices.ContainsFunc(old.Exceptions, func(o Exception) bool { return o.Key == e.Key }) {
@@ -167,9 +165,9 @@ func reviewBaseline(w io.Writer, base string, old, b *Baseline) {
 }
 
 // printChanges lists how b differs from old, with the old and new numbers.
-func printChanges(w io.Writer, old, b *Baseline) {
-	looser := loosenings(b, old)
-	tighter := slices.DeleteFunc(loosenings(old, b), func(k string) bool { return k == "tools" })
+func printChanges(w io.Writer, old, b *Baseline, s *Scan) {
+	looser := loosenings(b, old, s)
+	tighter := slices.DeleteFunc(loosenings(old, b, s), func(k string) bool { return k == "tools" })
 	fmt.Fprintf(w, "%d looser, %d tighter.\n", len(looser), len(tighter))
 	for _, key := range looser {
 		fmt.Fprintf(w, "  looser: %s%s\n", key, change(key, old, b))
@@ -208,9 +206,9 @@ func change(key string, old, b *Baseline) string {
 	return fmt.Sprintf(" (%s -> %s)", show(old), show(b))
 }
 
-// reviewHotspots lists items over base's limit that base's baseline did not cap, and
-// items that grew past base's cap, following caps of moved code, so a branch that
-// raises a limit hides nothing.
+// reviewHotspots lists items over base's limit that base's baseline did not cap, naming
+// the removed item whose cap one takes, and items that grew past base's cap, so a
+// branch that raises a limit hides nothing.
 func reviewHotspots(w io.Writer, base string, old, b *Baseline, s *Scan) {
 	var found []string
 	for _, scope := range sortedKeys(b.Budgets) {
@@ -219,15 +217,16 @@ func reviewHotspots(w io.Writer, base string, old, b *Baseline, s *Scan) {
 			if !ok {
 				limit = b.Budgets[scope][metric]
 			}
-			moved := moves(old.Caps[scope][metric], s.Values[scope][metric], s.Content, old.Fingerprints)
-			for _, id := range sortedKeys(s.Values[scope][metric]) {
-				v := s.Values[scope][metric][id]
-				was, capped := old.Caps[scope][metric][id]
-				if from, ok := moved[id]; ok {
-					was, capped = old.Caps[scope][metric][from], true
-				}
+			caps, values := old.Caps[scope][metric], s.Values[scope][metric]
+			moved := inherit(caps, uncapped(values, caps, limit), s)
+			for _, id := range sortedKeys(values) {
+				v := values[id]
+				was, capped := caps[id]
+				from, took := moved[id]
 				switch {
 				case v <= limit:
+				case took:
+					found = append(found, fmt.Sprintf("new: %s %s %s is %d, limit %d; it takes the cap of %d from %s, which is gone", scope, metric, id, v, limit, caps[from], from))
 				case !capped:
 					found = append(found, fmt.Sprintf("new: %s %s %s is %d, limit %d", scope, metric, id, v, limit))
 				case v > was:

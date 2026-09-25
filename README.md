@@ -2,7 +2,7 @@
 
 This skill keeps each repository’s code size, complexity, duplication, and imports within committed limits. It measures Go and TypeScript code. The design choice is to keep one shared scanner in the skill and store only each project’s `.smells.json` plus a Makefile target, so every repository measures the same way and none has to install the tools. The alternative, copying the scanner into every repository, was turned down because the copies would drift apart.
 
-Code that is already over a limit may become smaller, but it may not grow. New code must remain within the configured limits. A cap belongs to the code, not to its name: a function or file that moves or is renamed without changing keeps its cap. The match is by a hash of the content, so code that is moved and edited in the same change counts as new; move it first and edit it in the next change.
+Code that is already over a limit may become smaller, but it may not grow. New code must stay within the configured limits. If a capped item is removed, a new item may take its cap when it is no larger. The match uses size only, so a function may move, be renamed, shrink, or move to another package in the same change. A split may also use the caps of several removed items. An unrelated new function may take a removed one's cap too, but the count and total excess for each limit must still not grow, and `review` names every item that takes a cap. Matching by a content hash was rejected because moving and editing code broke the match and required an exception.
 
 ## Install and use
 
@@ -49,7 +49,7 @@ smell-check smell-report smell-baseline:
 
 Each measurement is an item with a whole-number value. It belongs to either the `production` or `tests` scope. Files that match `files.tests` are treated as tests.
 
-- `function_lines`: the number of lines from the first line to the last line of a function. This includes comments, blank lines, and nested functions. In Go, it measures declared functions and methods, named `path:Receiver.Name`. In TypeScript, it measures every function with a body and names it using the surrounding functions, such as `mount/render`. A callback is named after the call it is passed to, followed by that call’s first string argument, such as `test("sends")`. `#2`, `#3`, and later numbers distinguish functions with the same name.
+- `function_lines`: the number of lines of a function that hold code. Comment lines and blank lines do not count; lines of nested functions do. In Go, it measures declared functions and methods, named `path:Receiver.Name`. In TypeScript, it measures every function with a body and names it using the surrounding functions, such as `mount/render`. A callback is named after the call it is passed to, followed by that call’s first string argument, such as `test("sends")`. `#2`, `#3`, and later numbers distinguish functions with the same name.
 - `complexity`: for Go, this is gocognit’s cognitive complexity, including closures. For TypeScript, the value starts at 1 and adds 1 for each `if`, loop, `catch`, `case`, `?:`, `&&`, `||`, and `??` in the function itself. Functions nested inside it are not counted.
 - `file_lines`: the number of lines in a source file.
 - `fan_out` (production only): the number of local packages (Go folders) or local modules (TypeScript files) imported by a package or module.

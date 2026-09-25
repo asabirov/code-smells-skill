@@ -237,9 +237,8 @@ func TestProjectBunfigDoesNotRun(t *testing.T) {
 	}
 }
 
-// TestShrinkTwice lowers Letter's cap with baseline, then shrinks it again: the stored
-// fingerprint is now stale, so the check asks for baseline, which passes after it runs.
-// A stale fingerprint is refused because it cannot be told apart from a forged one.
+// TestShrinkTwice lowers Letter's cap with baseline, then shrinks it again: the check
+// passes and notes that baseline can lower the cap again.
 func TestShrinkTwice(t *testing.T) {
 	measured(t)
 	grade, err := os.ReadFile("grade/grade.go")
@@ -250,25 +249,34 @@ func TestShrinkTwice(t *testing.T) {
 	write(t, "grade/grade.go", once)
 	firstBaseline(t)
 	write(t, "grade/grade.go", strings.Replace(once, "\t} else if score >= 70 {\n\t\treturn \"C\"\n", "", 1))
-	if b, _ := loadBaseline(); b.Caps[production][complexity]["grade/grade.go:Letter"] != 17 {
-		t.Fatalf("Letter's cap is %d, want 17", b.Caps[production][complexity]["grade/grade.go:Letter"])
+	problems, notes, err := check()
+	if err != nil || len(problems) > 0 {
+		t.Fatalf("a second shrink failed: %v %q", err, problems)
 	}
-	if problems, _, _ := check(); !strings.Contains(strings.Join(problems, "\n"), "run smells baseline") {
-		t.Fatalf("a stale fingerprint passed: %q", problems)
-	}
-	firstBaseline(t)
-	if problems, _, err := check(); err != nil || len(problems) > 0 {
-		t.Fatalf("check after baseline: %v %q", err, problems)
+	if !strings.Contains(strings.Join(notes, "\n"), "grade/grade.go:Letter is 16, below its cap of 17") {
+		t.Fatalf("notes %q", notes)
 	}
 }
 
-// TestCapFollowsMovedCode moves the capped grade.go:Letter to another file, or renames
-// it, without changing its body: the check passes, baseline moves the cap, and the
-// moved cap is not looser than main's. Growing it after the move still fails.
+// TestCapFollowsMovedCode moves the capped grade.go:Letter to another file, renames it,
+// moves it and makes it smaller, or moves its file to another package: the check
+// passes, review names the new item and the cap it takes, baseline moves the cap, and
+// the moved cap is not looser than main's. Growing it after the move still fails.
 func TestCapFollowsMovedCode(t *testing.T) {
-	cases := []struct{ name, file, id string }{
-		{"move", "grade/letter.go", "grade/letter.go:Letter"},
-		{"rename", "grade/grade.go", "grade/grade.go:Mark"},
+	cases := []struct {
+		name, file, id string
+		edit           func(string) string
+	}{
+		{"move", "grade/letter.go", "grade/letter.go:Letter", nil},
+		{"rename", "grade/grade.go", "grade/grade.go:Mark", func(src string) string {
+			return strings.Replace(src, "func Letter(", "func Mark(", 1)
+		}},
+		{"move and shrink", "grade/letter.go", "grade/letter.go:Letter", func(src string) string {
+			return strings.Replace(src, "\t} else if score >= 70 {\n\t\treturn \"C\"\n", "", 1)
+		}},
+		{"move to another package", "score/grade.go", "score/grade.go:Letter", func(src string) string {
+			return strings.Replace(src, "package grade", "package score", 1)
+		}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -280,17 +288,24 @@ func TestCapFollowsMovedCode(t *testing.T) {
 			if err := os.Remove("grade/grade.go"); err != nil {
 				t.Fatal(err)
 			}
-			write(t, c.file, strings.Replace(string(grade), "func Letter(", "func "+strings.TrimPrefix(c.id, c.file+":")+"(", 1))
+			src := string(grade)
+			if c.edit != nil {
+				src = c.edit(src)
+			}
+			if err := os.MkdirAll(filepath.Dir(c.file), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			write(t, c.file, src)
 			problems, notes, err := check()
 			if err != nil || len(problems) > 0 {
 				t.Fatalf("check after a %s: %v %q", c.name, err, problems)
 			}
-			if !strings.Contains(strings.Join(notes, "\n"), "grade/grade.go:Letter moved to "+c.id) {
+			if !strings.Contains(strings.Join(notes, "\n"), "grade/grade.go:Letter is gone, and "+c.id+" takes its cap") {
 				t.Fatalf("notes %q do not name the move", notes)
 			}
 			var out bytes.Buffer
-			if err := review(&out, "origin/main"); err != nil || strings.Contains(out.String(), "new: production complexity "+c.id) {
-				t.Fatalf("review calls the moved code new: %v\n%s", err, out.String())
+			if err := review(&out, "origin/main"); err != nil || !strings.Contains(out.String(), "limit 15; it takes the cap of 18 from grade/grade.go:Letter") {
+				t.Fatalf("review does not name %s and the cap it takes: %v\n%s", c.id, err, out.String())
 			}
 			firstBaseline(t)
 			b, err := loadBaseline()
@@ -303,11 +318,7 @@ func TestCapFollowsMovedCode(t *testing.T) {
 			if problems, _, err := check(); err != nil || len(problems) > 0 {
 				t.Fatalf("check with the moved cap: %v %q", err, problems)
 			}
-			moved, err := os.ReadFile(c.file)
-			if err != nil {
-				t.Fatal(err)
-			}
-			write(t, c.file, strings.Replace(string(moved), "\tif curved {\n", "\tif score < 0 {\n\t\tscore = 0\n\t}\n\tif curved {\n", 1))
+			write(t, c.file, strings.Replace(src, "\tif curved {\n", "\tif score < 0 {\n\t\tscore = 0\n\t}\n\tif curved {\n", 1))
 			if problems, _, _ := check(); !strings.Contains(strings.Join(problems, "\n"), c.id+" grew") {
 				t.Fatalf("growth after the %s passed: %q", c.name, problems)
 			}
@@ -394,54 +405,22 @@ func TestNoDefaultBranch(t *testing.T) {
 	}
 }
 
-// TestForgedMoveFails deletes the capped Letter, adds a different function over the
-// limit, and hands it Letter's cap and fingerprint by hand: that is not a move.
-func TestForgedMoveFails(t *testing.T) {
+// TestNewFunctionTakesFreedCap deletes the capped Letter and adds an unrelated function
+// over the limit: it may take Letter's cap of 18 while it is not larger.
+func TestNewFunctionTakesFreedCap(t *testing.T) {
 	measured(t)
 	if err := os.Remove("grade/grade.go"); err != nil {
 		t.Fatal(err)
 	}
-	write(t, "grade/other.go", "package grade\n\nfunc Other(a bool) int {\n"+repeat("if a {\n\t\ta = !a\n\t}", 16)+"\treturn 0\n}\n")
-	editBaseline(t, func(b *Baseline) {
-		caps := b.Caps[production][complexity]
-		caps["grade/other.go:Other"] = caps["grade/grade.go:Letter"]
-		delete(caps, "grade/grade.go:Letter")
-		b.Fingerprints["grade/other.go:Other"] = b.Fingerprints["grade/grade.go:Letter"]
-	})
-	if problems, _, _ := check(); !strings.Contains(strings.Join(problems, "\n"), "caps/production/complexity/grade/other.go:Other is looser") {
-		t.Fatalf("a forged move passed: %q", problems)
+	other := func(n int) string {
+		return "package grade\n\nfunc Other(a bool) int {\n" + repeat("if a {\n\t\ta = !a\n\t}", n) + "\treturn 0\n}\n"
 	}
-}
-
-// TestForgedFingerprintFails keeps Letter's cap key after deleting it, and rewrites its
-// fingerprint to a different function's hash, so check would take that one for a move.
-func TestForgedFingerprintFails(t *testing.T) {
-	measured(t)
-	if err := os.Remove("grade/grade.go"); err != nil {
-		t.Fatal(err)
+	write(t, "grade/other.go", other(18))
+	if problems, _, err := check(); err != nil || len(problems) > 0 {
+		t.Fatalf("a new function no larger than the freed cap failed: %v %q", err, problems)
 	}
-	write(t, "grade/other.go", "package grade\n\nfunc Other(a bool) int {\n"+repeat("if a {\n\t\ta = !a\n\t}", 16)+"\treturn 0\n}\n")
-	b, err := loadBaseline()
-	if err != nil {
-		t.Fatal(err)
-	}
-	s, err := scan(b)
-	if err != nil {
-		t.Fatal(err)
-	}
-	editBaseline(t, func(b *Baseline) { b.Fingerprints["grade/grade.go:Letter"] = s.Content["grade/other.go:Other"] })
-	if problems, _, _ := check(); !strings.Contains(strings.Join(problems, "\n"), "fingerprints/grade/grade.go:Letter matches neither") {
-		t.Fatalf("a forged fingerprint passed: %q", problems)
-	}
-}
-
-// TestPoisonedFingerprintFails changes the stored fingerprint of the capped Letter,
-// which still exists, to another hash, so a later change could move its cap onto
-// different code.
-func TestPoisonedFingerprintFails(t *testing.T) {
-	measured(t)
-	editBaseline(t, func(b *Baseline) { b.Fingerprints["grade/grade.go:Letter"] = "0123456789abcdef" })
-	if problems, _, _ := check(); !strings.Contains(strings.Join(problems, "\n"), "fingerprints/grade/grade.go:Letter matches neither") {
-		t.Fatalf("a poisoned fingerprint passed: %q", problems)
+	write(t, "grade/other.go", other(19))
+	if problems, _, _ := check(); !strings.Contains(strings.Join(problems, "\n"), "grade/other.go:Other is 19, over the limit of 15") {
+		t.Fatalf("a new function larger than the freed cap passed: %q", problems)
 	}
 }

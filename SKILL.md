@@ -13,14 +13,14 @@ description: Measure code size, complexity, duplication and imports in a Go or T
 |---|---|---|
 | `bin/smells check` | Before you finish a change in a repository with `.smells.json`. Projects usually run it as `make smell-check` inside `make check`. | Exits 0 when no smell has grown. Otherwise, each `smell:` line identifies a problem and the command exits 1. |
 | `bin/smells report [dir]` | To view the repository's current totals and the ten worst functions. It works without `.smells.json` and uses the default limits. | Shows a table for each language, followed by the worst functions. It never fails because of what it finds. |
-| `bin/smells baseline` | Run once to create a repository's first `.smells.json`. Run it again when `check` prints `note:` lines saying that a cap can be reduced or has moved, or when `check` says the baseline was measured with other tools. | Writes `.smells.candidate.json`: the first baseline, with a cap for every existing limit violation; the current baseline with lower or moved caps; or a re-measured baseline, with the old and new numbers printed. Read it, `mv` it over `.smells.json`, and commit it. |
+| `bin/smells baseline` | Run once to create a repository's first `.smells.json`. Run it again when `check` prints `note:` lines saying that a cap can be reduced or has passed to a new item, or when `check` says the baseline was measured with other tools. | Writes `.smells.candidate.json`: the first baseline, with a cap for every existing limit violation; the current baseline with lower caps, or caps passed to new items; or a re-measured baseline, with the old and new numbers printed. Read it, `mv` it over `.smells.json`, and commit it. |
 | `bin/smells review` | When reviewing a branch or pull request. Add `--base <ref>` to compare with something other than the default branch. | Reports whether the check passes, how the baseline changed, the stated reasons, new hotspots, and the worst functions. It exits 0 unless the code cannot be measured. |
 
 ## The rules the check enforces
 
 - If a function, file or package already exceeds a limit, `.smells.json` records a cap for it. The code may become smaller, but it must not grow beyond that cap.
-- A function or file that moves or is renamed with the same content keeps its cap. `check` notes the move, and `baseline` moves the cap to the new name. The match is by content, so move or rename code in one change and edit it in the next; a moved function whose body also changed counts as new.
-- New code must remain within these limits: 80 lines per function, 500 lines per file, complexity 15, 8 local imports per package, no duplicated stretch of 100 tokens, and no import cycle.
+- When a capped item is removed, a new item in the same scope and metric may take its cap if it is not larger. The match uses size only, so code may move, be renamed, shrink, move to another package, or split into two items in one change. `check` notes the change, `baseline` moves the cap to the new name, and `review` lists the new name and the cap it took. This helps the reviewer see when an unrelated function has taken a cap.
+- New code must remain within these limits: 80 lines of code per function (comment and blank lines do not count), 500 lines per file, complexity 15, 8 local imports per package, no duplicated stretch of 100 tokens, and no import cycle.
 - The number of items above each limit, and their total excess, must not increase. Improving one hotspot does not permit a new problem elsewhere.
 - A branch's `.smells.json` must not be looser than the version on the default branch (`origin/HEAD`), unless `exceptions` lists the loosened key with a `reason` and an `issue`.
 - The scan fails if it finds a file it cannot parse, or if a listed language has no files or no functions.
@@ -30,8 +30,6 @@ description: Measure code size, complexity, duplication and imports in a Go or T
 ## Fixing a failed check
 
 If code has grown, split or simplify it; do not raise its cap. If the growth is genuinely required, raise the cap by hand and add an exception with the reason and the issue. A reviewer must then decide whether to accept it.
-
-If the check says a fingerprint matches neither the code nor the default branch, the code of a capped item changed after `baseline` last wrote its fingerprint. Run `bin/smells baseline` again and move the candidate into place. Fingerprints are only ever written by `baseline`.
 
 If the check says the baseline was measured with other tools, this machine's skill measures differently from the one that wrote the baseline. Re-measure it on a branch of its own, started from the latest default branch: run `bin/smells baseline`, read the old and new numbers it prints, move the candidate into place, and commit only that file. A reviewer sees the same numbers in `bin/smells review`.
 
@@ -43,7 +41,6 @@ A project records its `languages` (`go`, `typescript`) and `files`: `include` co
 - `caps` contain existing hotspots.
 - `aggregate` contains totals for each limit.
 - `tools` contains the measuring versions.
-- `fingerprints` contains a hash of each capped item's content, so its cap can follow it when it moves.
 - `measured_by` names the skill build and Go version that last wrote the file. It is for people and is not compared.
 
 ## In a review

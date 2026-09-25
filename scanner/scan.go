@@ -6,7 +6,6 @@ import (
 	"embed"
 	"encoding/hex"
 	"fmt"
-	"os"
 	"runtime/debug"
 	"slices"
 	"sort"
@@ -49,22 +48,14 @@ func hashMeasuringCode() string {
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
-// Scan holds every measurement: scope -> metric -> item -> value. Content holds a hash
-// of each function's body, file and duplicate group, so a cap can follow code that
-// moved or was renamed.
+// Scan holds every measurement: scope -> metric -> item -> value.
 type Scan struct {
-	Tools   map[string]string
-	Values  map[string]map[string]map[string]int
-	Content map[string]string
+	Tools  map[string]string
+	Values map[string]map[string]map[string]int
 }
 
 func newScan() *Scan {
-	return &Scan{Tools: toolVersions(), Values: map[string]map[string]map[string]int{}, Content: map[string]string{}}
-}
-
-func contentHash(src []byte) string {
-	sum := sha256.Sum256(src)
-	return hex.EncodeToString(sum[:8])
+	return &Scan{Tools: toolVersions(), Values: map[string]map[string]map[string]int{}}
 }
 
 func (s *Scan) set(scope, metric, id string, v int) {
@@ -90,15 +81,6 @@ func scan(b *Baseline) (*Scan, error) {
 		return nil, err
 	}
 	s := newScan()
-	for _, paths := range files {
-		for _, p := range paths {
-			src, err := os.ReadFile(p)
-			if err != nil {
-				return nil, err
-			}
-			s.Content[p] = contentHash(src)
-		}
-	}
 	graph := map[string]map[string]bool{}
 	if slices.Contains(b.Languages, golang) {
 		if err := scanGo(s, &rules, files[golang], graph); err != nil {
@@ -161,7 +143,6 @@ func setGroup(s *Scan, r *Rules, members []string, fingerprint string, copies in
 	}
 	id := fmt.Sprintf("%s @%.12s", strings.Join(members, " + "), fingerprint)
 	s.set(scope, duplicateGroups, id, copies)
-	s.Content[id] = fmt.Sprintf("%.12s", fingerprint)
 }
 
 // addGraph records each production module's fan-out, counting imports of excluded

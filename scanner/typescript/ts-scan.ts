@@ -1,10 +1,10 @@
 // Measures the TypeScript files named on stdin (a JSON array), relative to the project
-// folder given as the only argument, for the scanner: file and
-// function lines, branch complexity, local imports, and lines and groups of identical
-// runs of 100 tokens. A file with a syntax error fails the scan. Uses the compiler that
-// the bun.lock next to this file pins, so the numbers do not drift.
+// folder given as the only argument, for the scanner: file lines, function lines that
+// hold code (comment and blank lines do not count), branch complexity, local imports,
+// and lines and groups of identical runs of 100 tokens. A file with a syntax error
+// fails the scan. Uses the compiler that the bun.lock next to this file pins, so the
+// numbers do not drift.
 import ts from "typescript";
-import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
@@ -16,8 +16,8 @@ const BRANCHES = new Set([
 ]);
 const LOGICAL = new Set([K.AmpersandAmpersandToken, K.BarBarToken, K.QuestionQuestionToken]);
 
-type Fn = { name: string; lines: number; complexity: number; body: string };
-type Token = { text: string; line: number };
+type Fn = { name: string; lines: number; complexity: number };
+type Token = { text: string; line: number; last: number };
 
 // Bun starts outside the project, so the project's bunfig.toml and .env are not loaded.
 process.chdir(process.argv[2]);
@@ -82,6 +82,9 @@ function measure(file: string) {
     const at = d.start === undefined ? "" : `:${lineOf(s, d.start)}`;
     syntaxErrors.push(`${file}${at}: ${ts.flattenDiagnosticMessageText(d.messageText, "\n")}`);
   }
+  const toks = tokens(raw, s);
+  // A line holds code when a token covers it; comments are trivia and make no tokens.
+  const code = new Set(toks.flatMap((t) => Array.from({ length: t.last - t.line + 1 }, (_, i) => t.line + i)));
   const functions: Fn[] = [];
   const imports = new Set<string>();
   const seen = new Map<string, number>();
@@ -92,9 +95,9 @@ function measure(file: string) {
       const count = (seen.get(scope) ?? 0) + 1;
       seen.set(scope, count);
       if (count > 1) scope = `${scope}#${count}`;
-      const lines = lineOf(s, n.end) - lineOf(s, n.getStart(s)) + 1;
-      const body = createHash("sha256").update(n.body.getText(s)).digest("hex").slice(0, 16);
-      functions.push({ name: scope, lines, complexity: complexity(n), body });
+      let lines = 0;
+      for (let l = lineOf(s, n.getStart(s)); l <= lineOf(s, n.end); l++) if (code.has(l)) lines++;
+      functions.push({ name: scope, lines, complexity: complexity(n) });
     }
     if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier)) {
       const target = resolveImport(file, n.moduleSpecifier.text);
@@ -103,14 +106,14 @@ function measure(file: string) {
     ts.forEachChild(n, (c) => visit(c, scope));
   };
   visit(s, "");
-  return { file, lines: physicalLines(raw), functions, imports: [...imports].sort(), tokens: tokens(raw, s) };
+  return { file, lines: physicalLines(raw), functions, imports: [...imports].sort(), tokens: toks };
 }
 
 function tokens(raw: string, s: ts.SourceFile): Token[] {
   const out: Token[] = [];
   const scanner = ts.createScanner(ts.ScriptTarget.Latest, true, ts.LanguageVariant.Standard, raw);
   for (let k = scanner.scan(); k !== K.EndOfFileToken; k = scanner.scan()) {
-    out.push({ text: scanner.getTokenText(), line: lineOf(s, scanner.getTokenStart()) });
+    out.push({ text: scanner.getTokenText(), line: lineOf(s, scanner.getTokenStart()), last: lineOf(s, scanner.getTokenEnd()) });
   }
   return out;
 }

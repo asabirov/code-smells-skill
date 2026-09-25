@@ -17,7 +17,7 @@ func testBaseline() *Baseline {
 }
 
 func testScan(values map[string]int) *Scan {
-	s := &Scan{Tools: map[string]string{"definitions": definitions}, Values: map[string]map[string]map[string]int{}, Content: map[string]string{}}
+	s := &Scan{Tools: map[string]string{"definitions": definitions}, Values: map[string]map[string]map[string]int{}}
 	for id, v := range values {
 		s.set(production, complexity, id, v)
 	}
@@ -60,14 +60,14 @@ func TestCompareRefusesOtherTools(t *testing.T) {
 
 func TestCapsForOnlyLowers(t *testing.T) {
 	b := testBaseline()
-	caps, agg, _ := capsFor(b, testScan(map[string]int{"a.go:Big": 30, "c.go:Fine": 3}), true)
+	caps, agg := capsFor(b, testScan(map[string]int{"a.go:Big": 30, "c.go:Fine": 3}), true)
 	if got := caps[production][complexity]; len(got) != 1 || got["a.go:Big"] != 30 {
 		t.Fatalf("caps %v, want a.go:Big lowered to 30", got)
 	}
 	if got := agg[production][complexity]; got != (Aggregate{1, 15}) {
 		t.Fatalf("aggregate %v", got)
 	}
-	caps, _, _ = capsFor(b, testScan(map[string]int{"a.go:Big": 12}), true)
+	caps, _ = capsFor(b, testScan(map[string]int{"a.go:Big": 12}), true)
 	if len(caps[production][complexity]) != 0 {
 		t.Fatalf("a fixed item kept its cap: %v", caps)
 	}
@@ -79,10 +79,10 @@ func TestLooseningsNeedAnException(t *testing.T) {
 	branch.Caps[production][complexity]["a.go:Big"] = 41
 	branch.Budgets[tests][functionLines] = 200
 	want := []string{"caps/production/complexity/a.go:Big", "budgets/tests/function_lines"}
-	if got := loosenings(branch, main); !slices.Equal(got, want) {
+	if got := loosenings(branch, main, testScan(nil)); !slices.Equal(got, want) {
 		t.Fatalf("loosenings %q, want %q", got, want)
 	}
-	if loosenings(main, branch) != nil {
+	if loosenings(main, branch, testScan(nil)) != nil {
 		t.Fatal("a tighter baseline counted as looser")
 	}
 	branch.Exceptions = []Exception{{Key: want[0], Reason: "split in #1", Issue: ""}}
@@ -131,7 +131,7 @@ func scanSources(t *testing.T, dir string, files map[string]string) (*Scan, erro
 	if err := rules.compile(); err != nil {
 		t.Fatal(err)
 	}
-	s := &Scan{Tools: map[string]string{"definitions": definitions}, Values: map[string]map[string]map[string]int{}, Content: map[string]string{}}
+	s := &Scan{Tools: map[string]string{"definitions": definitions}, Values: map[string]map[string]map[string]int{}}
 	graph := map[string]map[string]bool{}
 	if strings.HasSuffix(paths[0], ".go") {
 		return s, scanGo(s, &rules, paths, graph)
@@ -149,7 +149,7 @@ func mustFail(t *testing.T, files map[string]string, want string) {
 }
 
 func TestEmptyScanFails(t *testing.T) {
-	s := &Scan{Values: map[string]map[string]map[string]int{}, Content: map[string]string{}}
+	s := &Scan{Values: map[string]map[string]map[string]int{}}
 	rules := defaultBaseline().Files
 	if err := scanGo(s, &rules, nil, nil); err == nil {
 		t.Error("a Go scan of no files passed")
@@ -171,8 +171,8 @@ func repeat(stmt string, n int) string {
 	return strings.Repeat("\t"+stmt+"\n", n)
 }
 
-// TestNewDuplicateGroupFails replaces a baselined clone with a different, smaller one in
-// the same files: the covered lines shrink, but the new group must still fail.
+// TestNewDuplicateGroupFails replaces a baselined clone with a different one that has
+// more copies: the removed group's cap is too small for it, so it must fail.
 func TestNewDuplicateGroupFails(t *testing.T) {
 	cases := []struct {
 		name, ext, old, new string
@@ -193,11 +193,11 @@ func TestNewDuplicateGroupFails(t *testing.T) {
 			}
 			b := defaultBaseline()
 			b.Tools = old.Tools
-			b.Caps, b.Aggregate, b.Fingerprints = capsFor(b, old, false)
+			b.Caps, b.Aggregate = capsFor(b, old, false)
 			if problems, _ := compare(b, old); len(problems) != 0 {
 				t.Fatalf("the baselined code fails: %q", problems)
 			}
-			now, err := scanSources(t, dir, map[string]string{"a" + c.ext: c.new, "b" + c.ext: c.new})
+			now, err := scanSources(t, dir, map[string]string{"a" + c.ext: c.new, "b" + c.ext: c.new, "c" + c.ext: c.new})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -209,59 +209,58 @@ func TestNewDuplicateGroupFails(t *testing.T) {
 	}
 }
 
-func TestMovedCapFollowsContent(t *testing.T) {
+// TestFreedCapsGoBySize removes capped functions and adds others: each new one may take
+// a removed one's cap that is not smaller than it, whatever its name or body.
+func TestFreedCapsGoBySize(t *testing.T) {
 	b := testBaseline()
-	b.Fingerprints = map[string]string{"a.go:Big": "body1"}
+	b.Caps[production][complexity]["a.go:Other"] = 30
+	b.Aggregate[production][complexity] = Aggregate{Violations: 2, Excess: 40}
 	cases := []struct {
-		name, content string
-		value         int
-		want          string
+		name   string
+		values map[string]int
+		want   string
 	}{
-		{"same body", "body1", 40, ""},
-		{"same body, grown", "body1", 41, "b.go:Big grew from 40 to 41"},
-		{"other body", "body2", 40, "b.go:Big is 40, over the limit"},
+		{"pure move", map[string]int{"b.go:Big": 40, "b.go:Other": 30}, ""},
+		{"move and shrink", map[string]int{"b.go:Big": 35, "b.go:Other": 20}, ""},
+		{"split to fit the freed caps", map[string]int{"b.go:One": 28, "b.go:Two": 35}, ""},
+		{"growth", map[string]int{"b.go:Big": 41, "b.go:Other": 30}, "b.go:Big is 41, over the limit"},
+		{"a cap still in use", map[string]int{"a.go:Big": 40, "a.go:Other": 30, "b.go:New": 20}, "b.go:New is 20, over the limit"},
 	}
 	for _, c := range cases {
-		s := testScan(map[string]int{"b.go:Big": c.value})
-		s.Content["b.go:Big"] = c.content
-		problems, _ := compare(b, s)
+		problems, _ := compare(b, testScan(c.values))
 		if got := strings.Join(problems, "\n"); c.want == "" && got != "" || !strings.Contains(got, c.want) {
 			t.Errorf("%s: problems %q, want %q", c.name, got, c.want)
 		}
 	}
-	s := testScan(map[string]int{"b.go:Big": 40})
-	s.Content["b.go:Big"], s.Content["a.go:Big"] = "body1", "body3"
-	if problems, _ := compare(b, s); len(problems) == 0 {
-		t.Error("a cap moved away from code that still exists")
-	}
 	branch := testBaseline()
-	branch.Caps[production][complexity] = map[string]int{"b.go:Big": 40}
-	branch.Fingerprints = map[string]string{"b.go:Big": "body1"}
-	if got := loosenings(branch, b); got != nil {
-		t.Fatalf("a moved cap counted as looser: %q", got)
+	branch.Caps[production][complexity] = map[string]int{"b.go:One": 28, "b.go:Two": 35}
+	s := testScan(map[string]int{"b.go:One": 28, "b.go:Two": 35})
+	if got := loosenings(branch, b, s); got != nil {
+		t.Fatalf("caps that took freed ones counted as looser: %q", got)
 	}
-	branch.Caps[production][complexity]["b.go:Big"] = 41
-	if got := loosenings(branch, b); len(got) != 1 {
-		t.Fatalf("a moved and raised cap: loosenings %q", got)
+	branch.Caps[production][complexity]["b.go:Two"] = 41
+	if got := loosenings(branch, b, s); len(got) != 1 {
+		t.Fatalf("a cap larger than any freed one: loosenings %q", got)
 	}
 }
 
-func TestTypeScriptBodyIgnoresName(t *testing.T) {
-	body := "(x: number) {\n  return x > 1 ? x * 2 : x;\n}\n"
-	s, err := scanSources(t, t.TempDir(), map[string]string{"a.ts": "export function f" + body, "b.ts": "export function g" + body})
-	if err != nil {
-		t.Fatal(err)
+// TestFunctionLinesCountOnlyCode measures a function of 104 lines, 72 of them code, with
+// a doc comment above: only the code lines count, so it stays under the limit of 80.
+func TestFunctionLinesCountOnlyCode(t *testing.T) {
+	body := strings.Repeat("\t// why the next line is here\n\tx = x + 1 // and a trailing note\n\n", 15) + repeat("x = x + 1", 55)
+	cases := []struct{ name, src string }{
+		{"a.go", "package a\n\n// F is long.\nfunc F(x int) {\n" + body + "\t/* the end\n\t   of it */\n}\n"},
+		{"a.ts", "/** f is long. */\nexport function f(x: number) {\n" + body + "\t/* the end\n\t   of it */\n}\n"},
 	}
-	var a, b string
-	for id, h := range s.Content {
-		if strings.HasSuffix(id, "a.ts:f") {
-			a = h
+	for _, c := range cases {
+		s, err := scanSources(t, t.TempDir(), map[string]string{c.name: c.src})
+		if err != nil {
+			t.Fatal(err)
 		}
-		if strings.HasSuffix(id, "b.ts:g") {
-			b = h
+		for id, v := range s.Values[production][functionLines] {
+			if v != 72 {
+				t.Errorf("%s is %d lines, want 72", id, v)
+			}
 		}
-	}
-	if a == "" || a != b {
-		t.Fatalf("the same body hashed %q and %q: %v", a, b, s.Content)
 	}
 }

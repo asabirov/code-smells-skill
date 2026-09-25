@@ -29,7 +29,6 @@ type tsResult struct {
 			Name       string `json:"name"`
 			Lines      int    `json:"lines"`
 			Complexity int    `json:"complexity"`
-			Body       string `json:"body"`
 		} `json:"functions"`
 	} `json:"files"`
 	Duplicates map[string]int `json:"duplicates"`
@@ -82,7 +81,6 @@ func scanTS(s *Scan, r *Rules, paths []string, graph map[string]map[string]bool)
 		for _, fn := range f.Functions {
 			s.set(scope, functionLines, f.File+":"+fn.Name, fn.Lines)
 			s.set(scope, complexity, f.File+":"+fn.Name, fn.Complexity)
-			s.Content[f.File+":"+fn.Name] = fn.Body
 		}
 		if scope == production {
 			tsImports(graph, r, f.File, f.Imports)
