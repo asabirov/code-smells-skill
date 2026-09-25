@@ -30,9 +30,9 @@ const (
 	dupTokens = 100
 )
 
-// The measuring code is built into the binary, and its hash is recorded in .smells.json
-// as the metric definitions: changing how anything is measured, even by accident, fails
-// the check until the baseline is changed on purpose.
+// The measuring code is built into the binary, and .smells.json records its hash as
+// "definitions". Any change to how something is measured, even by accident, fails the
+// check until the baseline is re-measured on purpose. README.md defines each metric.
 //
 //go:embed scan.go files.go golang.go typescript.go typescript/ts-scan.ts
 var measuringCode embed.FS
@@ -41,22 +41,12 @@ var definitions = hashMeasuringCode()
 
 func hashMeasuringCode() string {
 	h := sha256.New()
-	for _, name := range []string{"scan.go", "files.go", "golang.go", "typescript.go", tsScript} {
+	for _, name := range []string{"scan.go", "files.go", "golang.go", "typescript.go", "typescript/ts-scan.ts"} {
 		src, _ := measuringCode.ReadFile(name)
 		fmt.Fprintf(h, "%s %d\n", name, len(src))
 		h.Write(src)
 	}
 	return hex.EncodeToString(h.Sum(nil))[:16]
-}
-
-var metricDefinitions = map[string]string{
-	functionLines:   "Physical lines from the first to the last line of a function, including comments, blanks and nested functions. Go: declared functions and methods, named path:Receiver.Name. TypeScript: every function with a body, named by its enclosing names (mount/render); a callback is named after the call it is passed to, with its first string argument (test(\"sends\")), and #2, #3 tell apart same-named siblings.",
-	complexity:      "Go: cognitive complexity from gocognit, including closures. TypeScript: 1 plus each if, loop, catch, case, ?: and &&, ||, ?? in the function itself, not in functions nested in it.",
-	fileLines:       "Physical lines in a source file.",
-	fanOut:          "Local packages (Go directories) or local modules (TypeScript files) that a production package or module imports.",
-	duplicateLines:  "Lines of a file inside a repeated stretch of at least 100 tokens. Go: dupl syntax clones. TypeScript: identical runs of 100 tokens, ignoring whitespace and comments. All files are compared with each other.",
-	duplicateGroups: "Groups of repeated stretches counted in duplicate_lines; each group is one item, named by the files it spans and a fingerprint of the repeated code (Go: dupl's hash of its syntax; TypeScript: a hash of its tokens), and its value is how many copies there are. A group is in production if any copy is.",
-	cycles:          "Production import cycles; each cycle is one item, named by its members.",
 }
 
 // Scan holds every measurement: scope -> metric -> item -> value.

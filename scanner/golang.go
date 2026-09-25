@@ -21,7 +21,7 @@ import (
 // scan that finds no files or no functions, since it would pass by measuring nothing.
 func scanGo(s *Scan, r *Rules, paths []string, graph map[string]map[string]bool) error {
 	if len(paths) == 0 {
-		return fmt.Errorf("found no Go files to measure, though %s lists go; check files.include and files.exclude", baselinePath)
+		return fmt.Errorf("found no Go files to measure, but %s lists go; check files.include and files.exclude", baselinePath)
 	}
 	module, err := modulePath()
 	if err != nil {
@@ -48,7 +48,7 @@ func scanGo(s *Scan, r *Rules, paths []string, graph map[string]map[string]bool)
 		}
 	}
 	if functions == 0 {
-		return fmt.Errorf("measured no Go functions in %d files", len(paths))
+		return fmt.Errorf("found no Go functions in %d files", len(paths))
 	}
 	goDuplicates(s, r, paths, sources)
 	return nil
@@ -117,7 +117,7 @@ func modulePath() (string, error) {
 			return strings.TrimSpace(m), nil
 		}
 	}
-	return "", fmt.Errorf("go.mod names no module")
+	return "", fmt.Errorf("go.mod does not name a module")
 }
 
 // goDuplicates finds dupl's syntax clones of at least dupTokens tokens across all Go

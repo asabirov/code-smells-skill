@@ -50,7 +50,7 @@ func write(t *testing.T, name, src string) {
 
 func editBaseline(t *testing.T, edit func(*Baseline)) {
 	t.Helper()
-	b, err := loadBaseline(baselinePath)
+	b, err := loadBaseline()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,19 +60,28 @@ func editBaseline(t *testing.T, edit func(*Baseline)) {
 	}
 }
 
+// firstBaseline writes the first baseline and moves it into place.
+func firstBaseline(t *testing.T) {
+	t.Helper()
+	if err := runBaseline(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(candidatePath, baselinePath); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // measured is the mixed fixture with its first baseline merged.
 func measured(t *testing.T) {
 	t.Helper()
 	fixture(t, "mixed")
-	if err := runInit(); err != nil {
-		t.Fatal(err)
-	}
+	firstBaseline(t)
 	commit(t)
 }
 
 func TestFixturePasses(t *testing.T) {
 	measured(t)
-	b, err := loadBaseline(baselinePath)
+	b, err := loadBaseline()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,8 +91,11 @@ func TestFixturePasses(t *testing.T) {
 	if problems, _, err := check(); err != nil || len(problems) > 0 {
 		t.Fatalf("the fixture fails its own baseline: %v %q", err, problems)
 	}
-	if err := runInit(); err == nil || !strings.Contains(err.Error(), "already measured") {
-		t.Fatalf("init over a measured baseline: %v", err)
+	if err := runBaseline(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(candidatePath); err == nil {
+		t.Fatal("baseline wrote a candidate though nothing can be lowered")
 	}
 }
 
@@ -111,7 +123,7 @@ func TestFixtureFailures(t *testing.T) {
 		{"new duplicate group", "duplicate_groups", func(t *testing.T) {
 			write(t, "grade/copy.go", strings.Replace(string(describe), "func Describe(", "func Summarize(", 1))
 		}},
-		{"other measuring code", "definitions hash is 0123456789abcdef, but code-smells dev measures with " + definitions, func(t *testing.T) {
+		{"other measuring code", "definitions 0123456789abcdef, dupl v1.0.0", func(t *testing.T) {
 			editBaseline(t, func(b *Baseline) { b.Tools["definitions"] = "0123456789abcdef" })
 		}},
 	}
@@ -163,9 +175,9 @@ func TestReportWithoutBaseline(t *testing.T) {
 	if err := os.Remove(baselinePath); err != nil {
 		t.Fatal(err)
 	}
-	b, err := reportBaseline()
-	if err != nil {
-		t.Fatal(err)
+	b, measured, err := startBaseline()
+	if err != nil || measured {
+		t.Fatal(measured, err)
 	}
 	if strings.Join(b.Languages, ",") != "go,typescript" || strings.Join(b.Files.Include, ",") != "*.go,*.ts" {
 		t.Fatalf("detected %v in %v", b.Languages, b.Files.Include)
@@ -175,13 +187,14 @@ func TestReportWithoutBaseline(t *testing.T) {
 	}
 }
 
-func TestInitDetectsLanguagesUnderInclude(t *testing.T) {
+func TestFirstBaselineDetectsLanguagesUnderInclude(t *testing.T) {
 	fixture(t, "mixed")
 	write(t, baselinePath, `{"files": {"include": ["*.go"], "exclude": ["vendor/"]}}`)
-	if err := runInit(); err != nil {
-		t.Fatal(err)
+	if _, _, err := check(); err == nil || !strings.Contains(err.Error(), "no measurements yet") {
+		t.Fatalf("check of an unmeasured baseline: %v", err)
 	}
-	b, err := loadBaseline(baselinePath)
+	firstBaseline(t)
+	b, err := loadBaseline()
 	if err != nil {
 		t.Fatal(err)
 	}

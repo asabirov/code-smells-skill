@@ -49,7 +49,7 @@ func (r *Rules) compile() error {
 	for _, t := range r.Tests {
 		re, err := regexp.Compile(t)
 		if err != nil {
-			return fmt.Errorf("test pattern %q: %w", t, err)
+			return fmt.Errorf("files.tests pattern %q is not a valid regular expression: %w", t, err)
 		}
 		r.tests = append(r.tests, re)
 	}
@@ -82,7 +82,7 @@ func checkLanguages(langs []string) error {
 	}
 	for _, l := range langs {
 		if extensions[l] == nil {
-			return fmt.Errorf("%s lists the language %q; this skill measures %s", baselinePath, l, strings.Join(sortedKeys(extensions), " and "))
+			return fmt.Errorf("%s lists the language %q, but this skill measures only %s", baselinePath, l, strings.Join(sortedKeys(extensions), " and "))
 		}
 	}
 	return nil

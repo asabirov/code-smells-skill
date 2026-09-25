@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"os/exec"
@@ -11,9 +13,7 @@ import (
 
 // Baseline is .smells.json: the limits, and a cap for every item already over one.
 type Baseline struct {
-	Schema     int                                  `json:"schema"`
 	Tools      map[string]string                    `json:"tools"`
-	Metrics    map[string]string                    `json:"metrics"`
 	Languages  []string                             `json:"languages"`
 	Files      Rules                                `json:"files"`
 	Budgets    map[string]map[string]int            `json:"budgets"`
@@ -23,14 +23,15 @@ type Baseline struct {
 }
 
 // Aggregate is how many items in a scope and metric are over the limit, and by how much
-// in total, so a hotspot that shrinks cannot pay for a new one.
+// in total, so a hotspot that shrinks cannot make room for a new one.
 type Aggregate struct {
 	Violations int `json:"violations"`
 	Excess     int `json:"excess"`
 }
 
-// Exception allows one loosening relative to the default branch, such as a raised cap,
-// once a reviewer has agreed to it. Key names the loosened entry, as smell-check prints it.
+// Exception allows one loosening compared with the default branch, such as a raised
+// cap, once a reviewer has agreed to it. Key names the loosened entry as the check
+// prints it.
 type Exception struct {
 	Key    string `json:"key"`
 	Reason string `json:"reason"`
@@ -42,8 +43,6 @@ func defaultBaseline() *Baseline {
 	prod := maps.Clone(limits)
 	prod[fanOut], prod[cycles] = 8, 0
 	return &Baseline{
-		Schema:  1,
-		Metrics: metricDefinitions,
 		Files: Rules{
 			Exclude: []string{"vendor/", "node_modules/"},
 			Tests:   []string{`_test\.go$`, `\.test\.ts$`, `\.spec\.ts$`},
@@ -53,21 +52,41 @@ func defaultBaseline() *Baseline {
 	}
 }
 
-func loadBaseline(path string) (*Baseline, error) {
-	src, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("cannot read the baseline: %w", err)
+// loadBaseline reads .smells.json, which must already hold measurements.
+func loadBaseline() (*Baseline, error) {
+	b, measured, err := startBaseline()
+	if err == nil && !measured {
+		err = fmt.Errorf("%s is missing or has no measurements yet; run smells baseline to create it", baselinePath)
 	}
-	return parseBaseline(src, path)
+	return b, err
+}
+
+// startBaseline reads .smells.json. When there is none, or it holds only languages
+// and files, it returns the default limits, with the languages and files found in the
+// repository filling any gaps, and measured is false.
+func startBaseline() (b *Baseline, measured bool, err error) {
+	src, err := os.ReadFile(baselinePath)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, false, err
+	}
+	if src != nil {
+		if b, err = parseBaseline(src, baselinePath); err != nil || b.Tools != nil {
+			return b, err == nil, err
+		}
+	}
+	b = defaultBaseline()
+	if src != nil {
+		if err := json.Unmarshal(src, b); err != nil {
+			return nil, false, err
+		}
+	}
+	return b, false, detectFiles(b)
 }
 
 func parseBaseline(src []byte, name string) (*Baseline, error) {
 	var b Baseline
 	if err := json.Unmarshal(src, &b); err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)
-	}
-	if b.Schema != 1 {
-		return nil, fmt.Errorf("%s: schema %d is not 1", name, b.Schema)
 	}
 	return &b, nil
 }
@@ -83,14 +102,10 @@ func saveBaseline(path string, b *Baseline) error {
 
 // compare lists what in the scan breaks the baseline, and notes caps that could come down.
 func compare(b *Baseline, s *Scan) (problems, notes []string) {
-	if b.Tools["definitions"] != definitions {
+	if !maps.Equal(b.Tools, s.Tools) {
 		problems = append(problems, fmt.Sprintf(
-			"%s was measured by code whose definitions hash is %s, but code-smells %s measures with %s, so the numbers cannot be compared; use the skill version that wrote the baseline, or re-measure the baseline deliberately, with an issue and a review",
-			baselinePath, b.Tools["definitions"], version, definitions))
-	} else if !maps.Equal(b.Tools, s.Tools) || !maps.Equal(b.Metrics, metricDefinitions) {
-		problems = append(problems, fmt.Sprintf(
-			"the measuring tools or metric definitions differ from %s (baseline %v, now %v); change the baseline deliberately, with an issue and a review",
-			baselinePath, b.Tools, s.Tools))
+			"%s was measured with %s, but code-smells %s measures with %s, so the numbers cannot be compared; run the skill version that wrote %s, or re-measure it in its own reviewed change",
+			baselinePath, formatMap(b.Tools), version, formatMap(s.Tools), baselinePath))
 	}
 	for _, scope := range sortedKeys(b.Budgets) {
 		for _, metric := range sortedKeys(b.Budgets[scope]) {
@@ -119,12 +134,12 @@ func compareMetric(b *Baseline, s *Scan, scope, metric string) (problems, notes 
 	}
 	for _, id := range sortedKeys(caps) {
 		if values[id] < caps[id] {
-			notes = append(notes, fmt.Sprintf("%s %s: %s is %d, below its cap of %d; make smell-baseline can lower it", scope, metric, id, values[id], caps[id]))
+			notes = append(notes, fmt.Sprintf("%s %s: %s is %d, below its cap of %d; smells baseline can lower the cap", scope, metric, id, values[id], caps[id]))
 		}
 	}
 	now, was := aggregate(values, limit), b.Aggregate[scope][metric]
 	if now.Violations > was.Violations || now.Excess > was.Excess {
-		problems = append(problems, fmt.Sprintf("%s %s: %d items over the limit by %d in total, more than the baseline's %d items by %d",
+		problems = append(problems, fmt.Sprintf("%s %s: %d over the limit by %d in total; the baseline allows %d over by %d",
 			scope, metric, now.Violations, now.Excess, was.Violations, was.Excess))
 	}
 	return problems, notes
@@ -162,12 +177,12 @@ func capsFor(b *Baseline, s *Scan, previous map[string]map[string]map[string]int
 	return caps, aggregates
 }
 
-// runBaseline writes a candidate baseline with caps lowered to today's values and fixed
-// items removed. It never raises a cap, adds an item, or changes limits, files or tools:
-// if the code is over the baseline it refuses, and the candidate must be moved into
-// place by hand.
+// runBaseline writes .smells.candidate.json for a person to review and move into place.
+// Without a measured baseline, it caps everything already over a limit. Otherwise it
+// only lowers caps and removes fixed items; it never raises a cap, adds an item or
+// changes the limits, files or tools, and it refuses while the code is over the baseline.
 func runBaseline() error {
-	b, err := loadBaseline(baselinePath)
+	b, measured, err := startBaseline()
 	if err != nil {
 		return err
 	}
@@ -175,52 +190,55 @@ func runBaseline() error {
 	if err != nil {
 		return err
 	}
-	if problems, _ := compare(b, s); len(problems) > 0 {
-		for _, p := range problems {
-			fmt.Fprintln(os.Stderr, "smell:", p)
-		}
-		return fmt.Errorf("refusing to write a candidate: the code is over %s; fix it, or raise the cap by hand with an issue and a review", baselinePath)
-	}
 	candidate := *b
-	candidate.Caps, candidate.Aggregate = capsFor(b, s, b.Caps)
-	lowered := loosenings(b, &candidate)
-	if len(lowered) == 0 {
-		fmt.Println("nothing to lower:", baselinePath, "already matches the code")
-		return nil
+	if !measured {
+		candidate.Tools = s.Tools
+		candidate.Caps, candidate.Aggregate = capsFor(b, s, nil)
+	} else {
+		if problems, _ := compare(b, s); len(problems) > 0 {
+			for _, p := range problems {
+				fmt.Fprintln(os.Stderr, "smell:", p)
+			}
+			return fmt.Errorf("did not write %s, because the code is over %s; fix the code, or raise the cap by hand with an exception", candidatePath, baselinePath)
+		}
+		candidate.Caps, candidate.Aggregate = capsFor(b, s, b.Caps)
+		lowered := loosenings(b, &candidate)
+		if len(lowered) == 0 {
+			fmt.Println("nothing to lower:", baselinePath, "already matches the code")
+			return nil
+		}
+		for _, key := range lowered {
+			fmt.Println("lower:", key)
+		}
 	}
 	if err := saveBaseline(candidatePath, &candidate); err != nil {
 		return err
 	}
-	for _, key := range lowered {
-		fmt.Println("lower:", key)
-	}
-	fmt.Printf("wrote %s; review it, then: mv %s %s\n", candidatePath, candidatePath, baselinePath)
+	fmt.Printf("wrote %s for %v in %v; review it, then run: mv %s %s\n", candidatePath, b.Languages, b.Files.Include, candidatePath, baselinePath)
 	return nil
 }
 
-// guardAgainstMain stops a branch from hiding growth by raising its own baseline:
-// anything looser than origin/main's .smells.json needs an exception. It reads the last
-// fetched origin/main, since the check runs without the network.
-func guardAgainstMain(b *Baseline) (problems, notes []string) {
-	if exec.Command("git", "rev-parse", "--verify", "--quiet", "origin/main").Run() != nil {
-		return []string{"origin/main is unknown, so the baseline cannot be compared with main's; run git fetch origin"}, nil
+// guard compares b with the baseline committed at ref: anything looser needs an
+// exception. It reads what was last fetched, so the check needs no network.
+func guard(b *Baseline, ref string) (old *Baseline, problems, notes []string) {
+	if exec.Command("git", "rev-parse", "--verify", "--quiet", ref+"^{commit}").Run() != nil {
+		return nil, []string{ref + " is unknown here, so the baseline cannot be compared with it; run git fetch origin"}, nil
 	}
-	src, err := exec.Command("git", "show", "origin/main:"+baselinePath).Output()
+	src, err := exec.Command("git", "show", ref+":"+baselinePath).Output()
 	if err != nil {
-		return nil, []string{"no " + baselinePath + " on origin/main yet, so the branch's own baseline is the only one checked"}
+		return nil, nil, []string{ref + " has no " + baselinePath + " yet, so only this branch's baseline is checked"}
 	}
-	main, err := parseBaseline(src, "origin/main:"+baselinePath)
+	old, err = parseBaseline(src, ref+":"+baselinePath)
 	if err != nil {
-		return []string{err.Error()}, nil
+		return nil, []string{err.Error()}, nil
 	}
-	for _, key := range loosenings(b, main) {
+	for _, key := range loosenings(b, old) {
 		if !excepted(b, key) {
-			problems = append(problems, fmt.Sprintf("%s is looser than on origin/main; tighten it, or add an exception for it with a reason and an issue", key))
+			problems = append(problems, fmt.Sprintf("%s is looser than on %s; tighten it, or add an exception for it with a reason and an issue", key, ref))
 		}
 	}
-	return problems, nil
+	return old, problems, nil
 }
-
 func excepted(b *Baseline, key string) bool {
 	return slices.ContainsFunc(b.Exceptions, func(e Exception) bool {
 		return e.Key == key && e.Reason != "" && e.Issue != ""
@@ -230,7 +248,7 @@ func excepted(b *Baseline, key string) bool {
 // loosenings lists every way b allows more than old does.
 func loosenings(b, old *Baseline) []string {
 	var keys []string
-	if !maps.Equal(b.Tools, old.Tools) || !maps.Equal(b.Metrics, old.Metrics) {
+	if !maps.Equal(b.Tools, old.Tools) {
 		keys = append(keys, "tools")
 	}
 	if !slices.Equal(b.Languages, old.Languages) || !slices.Equal(b.Files.Include, old.Files.Include) ||

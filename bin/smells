@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Runs the code-smells scanner in the current repository. The first run builds it into
 # ~/.cache/code-smells/<build>/, where <build> is a hash of the scanner's source, and
-# installs the TypeScript compiler its bun.lock pins next to it. That needs Go, Bun and
-# the network once; every later run reuses the build and works offline.
+# installs the TypeScript compiler that bun.lock pins next to it. That first run needs
+# Go, Bun and the network; later runs reuse the build and work offline.
 set -euo pipefail
 
 skill=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
@@ -28,8 +28,8 @@ fail() {
   exit 1
 }
 
-# put NAME COMMAND... runs COMMAND in a new folder and moves it to $cache/NAME, so an
-# interrupted build leaves nothing half-made behind.
+# put NAME COMMAND... runs COMMAND in a new folder, then moves the folder to
+# $cache/NAME, so an interrupted build leaves nothing half-finished behind.
 put() {
   local name=$1 tmp
   shift
@@ -37,13 +37,13 @@ put() {
   tmp=$(mktemp -d "$cache/$name.tmp.XXXXXX")
   if ! (cd "$tmp" && "$@"); then
     rm -rf "$tmp"
-    fail "$name failed; see above"
+    fail "$name failed; the error is above"
   fi
   if [[ $(source_hash) != "$build" ]]; then
     rm -rf "$tmp"
-    fail "the skill's source changed during the build; run again"
+    fail "the skill's source changed during the build; run bin/smells again"
   fi
-  # Another run may have finished the same build first; both copies are the same.
+  # Another run may have finished the same build first; both copies are identical.
   if [[ -e $cache/$name ]]; then rm -rf "$tmp"; else mv "$tmp" "$cache/$name"; fi
 }
 
@@ -57,8 +57,8 @@ install_typescript() {
 }
 
 if [[ ! -x $cache/bin/smells ]]; then
-  command -v go >/dev/null || fail "Go is not on PATH, and the first run builds the scanner with it"
-  echo "code-smells: first run of build $build; building the scanner into $cache" >&2
+  command -v go >/dev/null || fail "Go is not on PATH, and the first run needs it to build the scanner"
+  echo "code-smells: first run of build $build, so building the scanner into $cache" >&2
   put bin build_scanner
 fi
 if [[ ! -d $cache/typescript ]] && command -v bun >/dev/null; then
@@ -67,11 +67,4 @@ if [[ ! -d $cache/typescript ]] && command -v bun >/dev/null; then
 fi
 
 commit=$(git -C "$skill" rev-parse --short=12 HEAD 2>/dev/null || true)
-if [[ -z $commit ]]; then
-  version="build $build"
-elif [[ -n $(git -C "$skill" status --porcelain -- scanner 2>/dev/null) ]]; then
-  version="$commit with local changes, build $build"
-else
-  version="$commit, build $build"
-fi
-CODE_SMELLS_VERSION=$version exec "$cache/bin/smells" "$@"
+CODE_SMELLS_VERSION="${commit:+$commit, }build $build" exec "$cache/bin/smells" "$@"

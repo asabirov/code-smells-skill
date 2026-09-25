@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 )
 
-const tsScript = "typescript/ts-scan.ts"
-
 // tsDir holds ts-scan.ts and the TypeScript compiler its bun.lock pins. bin/smells
 // installs it next to the scanner's own folder; the tests point it at the source.
 var tsDir = func() string {
@@ -46,32 +44,27 @@ type tsResult struct {
 // finding no files or no functions.
 func scanTS(s *Scan, r *Rules, paths []string, graph map[string]map[string]bool) (string, error) {
 	if len(paths) == 0 {
-		return "", fmt.Errorf("found no TypeScript files to measure, though %s lists typescript; check files.include and files.exclude", baselinePath)
+		return "", fmt.Errorf("found no TypeScript files to measure, but %s lists typescript; check files.include and files.exclude", baselinePath)
 	}
 	bun, err := exec.LookPath("bun")
 	if err != nil {
-		return "", fmt.Errorf("bun is not on PATH; the TypeScript scan needs it")
+		return "", fmt.Errorf("bun is not on PATH, and measuring TypeScript needs it")
 	}
 	if _, err := os.Stat(filepath.Join(tsDir, "node_modules", "typescript", "package.json")); err != nil {
-		return "", fmt.Errorf("the TypeScript compiler is missing from %s; install Bun and run bin/smells again", tsDir)
-	}
-	script := filepath.Join(tsDir, "ts-scan.ts")
-	built, _ := measuringCode.ReadFile(tsScript)
-	if onDisk, err := os.ReadFile(script); err != nil || !bytes.Equal(onDisk, built) {
-		return "", fmt.Errorf("%s differs from the copy built into the scanner; delete that build folder and run bin/smells again", script)
+		return "", fmt.Errorf("the TypeScript compiler is not installed in %s; install Bun, then run bin/smells again", tsDir)
 	}
 	input, _ := json.Marshal(paths)
-	cmd := exec.Command(bun, script)
+	cmd := exec.Command(bun, filepath.Join(tsDir, "ts-scan.ts"))
 	cmd.Stdin = bytes.NewReader(input)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("TypeScript scan failed (%w): %s", err, bytes.TrimSpace(stderr.Bytes()))
+		return "", fmt.Errorf("measuring TypeScript failed (%w): %s", err, bytes.TrimSpace(stderr.Bytes()))
 	}
 	var res tsResult
 	if err := json.Unmarshal(out, &res); err != nil {
-		return "", fmt.Errorf("TypeScript scan output: %w", err)
+		return "", fmt.Errorf("could not read the TypeScript measurements: %w", err)
 	}
 	functions := 0
 	for _, f := range res.Files {
@@ -87,7 +80,7 @@ func scanTS(s *Scan, r *Rules, paths []string, graph map[string]map[string]bool)
 		}
 	}
 	if functions == 0 {
-		return "", fmt.Errorf("measured no TypeScript functions in %d files", len(paths))
+		return "", fmt.Errorf("found no TypeScript functions in %d files", len(paths))
 	}
 	for file, n := range res.Duplicates {
 		s.set(r.scope(file), duplicateLines, file, n)
