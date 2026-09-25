@@ -113,6 +113,9 @@ func formatMap[V any](m map[string]V) string {
 // check passes, how the baseline moved and why, which hotspots are new, and the worst
 // functions. It fails only when the code cannot be measured, never on what it finds.
 func review(w io.Writer, base string) error {
+	if base == "" {
+		return fmt.Errorf("%s; or pass --base with a ref", noDefaultBranch)
+	}
 	if exec.Command("git", "rev-parse", "--verify", "--quiet", base+"^{commit}").Run() != nil {
 		return fmt.Errorf("%s is not a commit here; fetch it or pass --base with another ref", base)
 	}
@@ -126,7 +129,7 @@ func review(w io.Writer, base string) error {
 	}
 	fmt.Fprintf(w, "Smells review against %s (code-smells %s)\n\n", base, version)
 	problems, _ := compare(b, s)
-	old, looser, _ := guard(b, base)
+	old, looser, _ := guard(b, s, base)
 	problems = append(problems, looser...)
 	if len(problems) == 0 {
 		fmt.Fprintln(w, "The check passes.")
@@ -147,14 +150,8 @@ func review(w io.Writer, base string) error {
 // reviewBaseline lists how the branch's baseline differs from base's, and the reasons
 // given for any loosening.
 func reviewBaseline(w io.Writer, base string, old, b *Baseline) {
-	looser, tighter := loosenings(b, old), loosenings(old, b)
-	fmt.Fprintf(w, "\nBaseline against %s: %d looser, %d tighter.\n", base, len(looser), len(tighter))
-	for _, key := range looser {
-		fmt.Fprintf(w, "  looser: %s%s\n", key, change(key, old, b))
-	}
-	for _, key := range tighter {
-		fmt.Fprintf(w, "  tighter: %s%s\n", key, change(key, old, b))
-	}
+	fmt.Fprintf(w, "\nBaseline against %s: ", base)
+	printChanges(w, old, b)
 	var added []string
 	for _, e := range b.Exceptions {
 		if !slices.ContainsFunc(old.Exceptions, func(o Exception) bool { return o.Key == e.Key }) {
@@ -167,8 +164,24 @@ func reviewBaseline(w io.Writer, base string, old, b *Baseline) {
 	}
 }
 
-// change shows the old and new value of a cap, budget or aggregate key.
+// printChanges lists how b differs from old, with the old and new numbers.
+func printChanges(w io.Writer, old, b *Baseline) {
+	looser := loosenings(b, old)
+	tighter := slices.DeleteFunc(loosenings(old, b), func(k string) bool { return k == "tools" })
+	fmt.Fprintf(w, "%d looser, %d tighter.\n", len(looser), len(tighter))
+	for _, key := range looser {
+		fmt.Fprintf(w, "  looser: %s%s\n", key, change(key, old, b))
+	}
+	for _, key := range tighter {
+		fmt.Fprintf(w, "  tighter: %s%s\n", key, change(key, old, b))
+	}
+}
+
+// change shows the old and new value of a cap, budget, aggregate or tools key.
 func change(key string, old, b *Baseline) string {
+	if key == "tools" {
+		return fmt.Sprintf(" (%s -> %s)", formatMap(old.Tools), formatMap(b.Tools))
+	}
 	parts := strings.SplitN(key, "/", 4)
 	if len(parts) < 3 {
 		return ""
@@ -194,7 +207,8 @@ func change(key string, old, b *Baseline) string {
 }
 
 // reviewHotspots lists items over base's limit that base's baseline did not cap, and
-// items that grew past base's cap, so a branch that raises a limit hides nothing.
+// items that grew past base's cap, following caps of moved code, so a branch that
+// raises a limit hides nothing.
 func reviewHotspots(w io.Writer, base string, old, b *Baseline, s *Scan) {
 	var found []string
 	for _, scope := range sortedKeys(b.Budgets) {
@@ -203,9 +217,13 @@ func reviewHotspots(w io.Writer, base string, old, b *Baseline, s *Scan) {
 			if !ok {
 				limit = b.Budgets[scope][metric]
 			}
+			moved := moves(old.Caps[scope][metric], s.Values[scope][metric], s.Content, old.Fingerprints)
 			for _, id := range sortedKeys(s.Values[scope][metric]) {
 				v := s.Values[scope][metric][id]
 				was, capped := old.Caps[scope][metric][id]
+				if from, ok := moved[id]; ok {
+					was, capped = old.Caps[scope][metric][from], true
+				}
 				switch {
 				case v <= limit:
 				case !capped:

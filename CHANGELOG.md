@@ -7,4 +7,23 @@
 - `.smells.json` defines the files to measure (`files.include`) and the project's `languages`. The check fails if a listed language produces no measurements.
 - The check fails, and reports both hashes, when the baseline was measured with different measuring code.
 - Use `review --base <ref>` to see what a branch changed without failing the check. Use `report <dir>` to survey a repository that has no baseline.
+- A cap follows its code: a function or file that moves or is renamed with the same content keeps its cap, and `baseline` moves the cap to the new name. Changed or grown code still fails.
+- `baseline` re-measures a baseline written by another skill version, prints the old and new numbers, and records the build in `measured_by`. The check accepts a re-measure only on a branch that changes no measured file. The Go version is recorded there but no longer compared.
+- The check and `review` compare with the repository's default branch (`origin/HEAD`) instead of `origin/main`, and say so when it is unknown.
+- Bun starts in the skill's folder, not the project, so a project's `bunfig.toml` or `.env` cannot run code inside the scanner.
 - `baseline` writes the repository's first baseline as a candidate for moving into place. `.smells.json` no longer contains `schema` or `metrics`; the README defines the metrics, and the check compares the complete `tools` block, including the `definitions` hash.
+
+### Planned for a later release
+
+From the CTO and security reviews of PR #2:
+
+- Exceptions never expire. `check` should note an exception whose key is no longer looser than the default branch, and `baseline` should drop it.
+- `function_lines` counts comments and blank lines, so documenting a capped function fails the check. Decide whether to count code lines only before many baselines exist, since changing it later means every repository re-measures.
+- A broken cached scanner does not rebuild itself, and its error does not say to delete the cache folder.
+- The README does not say that the cache is never pruned (about 29 MB per skill version), or that `go.mod` asks for Go 1.26.5, which an older Go downloads on first run.
+- `baseline` follows a symlinked `.smells.candidate.json` and overwrites its target. It should refuse symlinks.
+- Symlinked source files are read, so a link to a file outside the project, or to `/dev/zero`, is measured or hangs the scan. Skip anything that is not a regular file.
+- The launcher trusts whatever is in the cache folder. It should create it with mode 700 and refuse one that other users can write to.
+- The scanner build inherits the caller's Go environment, such as `GOWORK` and `GOINSECURE`. Build with `GOWORK=off` and `CGO_ENABLED=0`.
+- The note for a capped item that no longer exists says it "is 0, below its cap". It should say the item is gone and `baseline` drops the cap.
+- A package that moves keeps no `fan_out` cap: moves are matched for functions, files and duplicate groups only.

@@ -13,6 +13,7 @@ smoke:
 	@dir=$$(mktemp -d) && trap 'rm -rf "$$dir"' EXIT && cp -R scanner/testdata/mixed/. "$$dir/project" && \
 	export XDG_CACHE_HOME="$$dir/cache" && cd "$$dir/project" && git init -q && "$(CURDIR)/bin/smells" baseline && mv .smells.candidate.json .smells.json && git add -A && \
 	git -c user.name=smoke -c user.email=smoke@example.com commit -qm fixture && \
-	git update-ref refs/remotes/origin/main HEAD && "$(CURDIR)/bin/smells" check
+	git update-ref refs/remotes/origin/main HEAD && git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main && \
+	"$(CURDIR)/bin/smells" check
 
 .PHONY: check test smoke

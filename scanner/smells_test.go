@@ -17,7 +17,7 @@ func testBaseline() *Baseline {
 }
 
 func testScan(values map[string]int) *Scan {
-	s := &Scan{Tools: map[string]string{"definitions": definitions}, Values: map[string]map[string]map[string]int{}}
+	s := &Scan{Tools: map[string]string{"definitions": definitions}, Values: map[string]map[string]map[string]int{}, Content: map[string]string{}}
 	for id, v := range values {
 		s.set(production, complexity, id, v)
 	}
@@ -60,14 +60,14 @@ func TestCompareRefusesOtherTools(t *testing.T) {
 
 func TestCapsForOnlyLowers(t *testing.T) {
 	b := testBaseline()
-	caps, agg := capsFor(b, testScan(map[string]int{"a.go:Big": 30, "c.go:Fine": 3}), b.Caps)
+	caps, agg, _ := capsFor(b, testScan(map[string]int{"a.go:Big": 30, "c.go:Fine": 3}), true)
 	if got := caps[production][complexity]; len(got) != 1 || got["a.go:Big"] != 30 {
 		t.Fatalf("caps %v, want a.go:Big lowered to 30", got)
 	}
 	if got := agg[production][complexity]; got != (Aggregate{1, 15}) {
 		t.Fatalf("aggregate %v", got)
 	}
-	caps, _ = capsFor(b, testScan(map[string]int{"a.go:Big": 12}), b.Caps)
+	caps, _, _ = capsFor(b, testScan(map[string]int{"a.go:Big": 12}), true)
 	if len(caps[production][complexity]) != 0 {
 		t.Fatalf("a fixed item kept its cap: %v", caps)
 	}
@@ -131,7 +131,7 @@ func scanSources(t *testing.T, dir string, files map[string]string) (*Scan, erro
 	if err := rules.compile(); err != nil {
 		t.Fatal(err)
 	}
-	s := &Scan{Tools: map[string]string{"definitions": definitions}, Values: map[string]map[string]map[string]int{}}
+	s := &Scan{Tools: map[string]string{"definitions": definitions}, Values: map[string]map[string]map[string]int{}, Content: map[string]string{}}
 	graph := map[string]map[string]bool{}
 	if strings.HasSuffix(paths[0], ".go") {
 		return s, scanGo(s, &rules, paths, graph)
@@ -149,7 +149,7 @@ func mustFail(t *testing.T, files map[string]string, want string) {
 }
 
 func TestEmptyScanFails(t *testing.T) {
-	s := &Scan{Values: map[string]map[string]map[string]int{}}
+	s := &Scan{Values: map[string]map[string]map[string]int{}, Content: map[string]string{}}
 	rules := defaultBaseline().Files
 	if err := scanGo(s, &rules, nil, nil); err == nil {
 		t.Error("a Go scan of no files passed")
@@ -193,7 +193,7 @@ func TestNewDuplicateGroupFails(t *testing.T) {
 			}
 			b := defaultBaseline()
 			b.Tools = old.Tools
-			b.Caps, b.Aggregate = capsFor(b, old, nil)
+			b.Caps, b.Aggregate, b.Fingerprints = capsFor(b, old, false)
 			if problems, _ := compare(b, old); len(problems) != 0 {
 				t.Fatalf("the baselined code fails: %q", problems)
 			}
@@ -206,5 +206,57 @@ func TestNewDuplicateGroupFails(t *testing.T) {
 				t.Fatalf("a new duplicate group passed; problems %q", problems)
 			}
 		})
+	}
+}
+
+func TestMovedCapFollowsContent(t *testing.T) {
+	b := testBaseline()
+	b.Fingerprints = map[string]string{"a.go:Big": "body1"}
+	cases := []struct {
+		name, content string
+		value         int
+		want          string
+	}{
+		{"same body", "body1", 40, ""},
+		{"same body, grown", "body1", 41, "b.go:Big grew from 40 to 41"},
+		{"other body", "body2", 40, "b.go:Big is 40, over the limit"},
+	}
+	for _, c := range cases {
+		s := testScan(map[string]int{"b.go:Big": c.value})
+		s.Content["b.go:Big"] = c.content
+		problems, _ := compare(b, s)
+		if got := strings.Join(problems, "\n"); c.want == "" && got != "" || !strings.Contains(got, c.want) {
+			t.Errorf("%s: problems %q, want %q", c.name, got, c.want)
+		}
+	}
+	branch := testBaseline()
+	branch.Caps[production][complexity] = map[string]int{"b.go:Big": 40}
+	branch.Fingerprints = map[string]string{"b.go:Big": "body1"}
+	if got := loosenings(branch, b); got != nil {
+		t.Fatalf("a moved cap counted as looser: %q", got)
+	}
+	branch.Caps[production][complexity]["b.go:Big"] = 41
+	if got := loosenings(branch, b); len(got) != 1 {
+		t.Fatalf("a moved and raised cap: loosenings %q", got)
+	}
+}
+
+func TestTypeScriptBodyIgnoresName(t *testing.T) {
+	body := "(x: number) {\n  return x > 1 ? x * 2 : x;\n}\n"
+	s, err := scanSources(t, t.TempDir(), map[string]string{"a.ts": "export function f" + body, "b.ts": "export function g" + body})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var a, b string
+	for id, h := range s.Content {
+		if strings.HasSuffix(id, "a.ts:f") {
+			a = h
+		}
+		if strings.HasSuffix(id, "b.ts:g") {
+			b = h
+		}
+	}
+	if a == "" || a != b {
+		t.Fatalf("the same body hashed %q and %q: %v", a, b, s.Content)
 	}
 }

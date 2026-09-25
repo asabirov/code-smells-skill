@@ -4,6 +4,7 @@
 // runs of 100 tokens. A file with a syntax error fails the scan. Uses the compiler that
 // the bun.lock next to this file pins, so the numbers do not drift.
 import ts from "typescript";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
@@ -15,7 +16,7 @@ const BRANCHES = new Set([
 ]);
 const LOGICAL = new Set([K.AmpersandAmpersandToken, K.BarBarToken, K.QuestionQuestionToken]);
 
-type Fn = { name: string; lines: number; complexity: number };
+type Fn = { name: string; lines: number; complexity: number; body: string };
 type Token = { text: string; line: number };
 
 // Bun starts outside the project, so the project's bunfig.toml and .env are not loaded.
@@ -92,7 +93,8 @@ function measure(file: string) {
       seen.set(scope, count);
       if (count > 1) scope = `${scope}#${count}`;
       const lines = lineOf(s, n.end) - lineOf(s, n.getStart(s)) + 1;
-      functions.push({ name: scope, lines, complexity: complexity(n) });
+      const body = createHash("sha256").update(n.body.getText(s)).digest("hex").slice(0, 16);
+      functions.push({ name: scope, lines, complexity: complexity(n), body });
     }
     if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier)) {
       const target = resolveImport(file, n.moduleSpecifier.text);

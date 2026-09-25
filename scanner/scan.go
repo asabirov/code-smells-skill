@@ -6,7 +6,7 @@ import (
 	"embed"
 	"encoding/hex"
 	"fmt"
-	"runtime"
+	"os"
 	"runtime/debug"
 	"slices"
 	"sort"
@@ -49,10 +49,22 @@ func hashMeasuringCode() string {
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
-// Scan holds every measurement: scope -> metric -> item -> value.
+// Scan holds every measurement: scope -> metric -> item -> value. Content holds a hash
+// of each function's body, file and duplicate group, so a cap can follow code that
+// moved or was renamed.
 type Scan struct {
-	Tools  map[string]string                    `json:"tools"`
-	Values map[string]map[string]map[string]int `json:"values"`
+	Tools   map[string]string
+	Values  map[string]map[string]map[string]int
+	Content map[string]string
+}
+
+func newScan() *Scan {
+	return &Scan{Tools: toolVersions(), Values: map[string]map[string]map[string]int{}, Content: map[string]string{}}
+}
+
+func contentHash(src []byte) string {
+	sum := sha256.Sum256(src)
+	return hex.EncodeToString(sum[:8])
 }
 
 func (s *Scan) set(scope, metric, id string, v int) {
@@ -77,7 +89,16 @@ func scan(b *Baseline) (*Scan, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Scan{Tools: toolVersions(), Values: map[string]map[string]map[string]int{}}
+	s := newScan()
+	for _, paths := range files {
+		for _, p := range paths {
+			src, err := os.ReadFile(p)
+			if err != nil {
+				return nil, err
+			}
+			s.Content[p] = contentHash(src)
+		}
+	}
 	graph := map[string]map[string]bool{}
 	if slices.Contains(b.Languages, golang) {
 		if err := scanGo(s, &rules, files[golang], graph); err != nil {
@@ -96,10 +117,9 @@ func scan(b *Baseline) (*Scan, error) {
 }
 
 func toolVersions() map[string]string {
+	// The Go version is not compared: gocognit and dupl are pinned, and a new Go parses
+	// existing code the same way. measuredBy records it.
 	tools := map[string]string{"definitions": definitions}
-	// Only the language version matters to the parser; patch releases do not change it.
-	parts := strings.SplitN(runtime.Version(), ".", 3)
-	tools["go"] = strings.Join(parts[:min(2, len(parts))], ".")
 	if info, ok := debug.ReadBuildInfo(); ok {
 		for _, d := range info.Deps {
 			switch d.Path {
@@ -139,7 +159,9 @@ func setGroup(s *Scan, r *Rules, members []string, fingerprint string, copies in
 	if slices.ContainsFunc(members, func(m string) bool { return r.scope(m) == production }) {
 		scope = production
 	}
-	s.set(scope, duplicateGroups, fmt.Sprintf("%s @%.12s", strings.Join(members, " + "), fingerprint), copies)
+	id := fmt.Sprintf("%s @%.12s", strings.Join(members, " + "), fingerprint)
+	s.set(scope, duplicateGroups, id, copies)
+	s.Content[id] = fmt.Sprintf("%.12s", fingerprint)
 }
 
 // addGraph records each production module's fan-out, counting imports of excluded

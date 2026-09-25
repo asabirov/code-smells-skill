@@ -11,7 +11,7 @@ import (
 )
 
 // fixture copies testdata/<name> into a new git repository, commits it as origin/main,
-// and moves into it.
+// the default branch, and moves into it.
 func fixture(t *testing.T, name string) {
 	t.Helper()
 	src, err := filepath.Abs(filepath.Join("testdata", name))
@@ -25,6 +25,7 @@ func fixture(t *testing.T, name string) {
 	t.Chdir(dir)
 	git(t, "init", "-q")
 	commit(t)
+	git(t, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 }
 
 // commit commits everything and makes it origin/main, as if it had merged.
@@ -233,5 +234,114 @@ func TestProjectBunfigDoesNotRun(t *testing.T) {
 	}
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("the project's bunfig.toml preload ran inside the scanner")
+	}
+}
+
+// TestCapFollowsMovedCode moves the capped grade.go:Letter to another file, or renames
+// it, without changing its body: the check passes, baseline moves the cap, and the
+// moved cap is not looser than main's. Growing it after the move still fails.
+func TestCapFollowsMovedCode(t *testing.T) {
+	cases := []struct{ name, file, id string }{
+		{"move", "grade/letter.go", "grade/letter.go:Letter"},
+		{"rename", "grade/grade.go", "grade/grade.go:Mark"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			measured(t)
+			grade, err := os.ReadFile("grade/grade.go")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Remove("grade/grade.go"); err != nil {
+				t.Fatal(err)
+			}
+			write(t, c.file, strings.Replace(string(grade), "func Letter(", "func "+strings.TrimPrefix(c.id, c.file+":")+"(", 1))
+			problems, notes, err := check()
+			if err != nil || len(problems) > 0 {
+				t.Fatalf("check after a %s: %v %q", c.name, err, problems)
+			}
+			if !strings.Contains(strings.Join(notes, "\n"), "grade/grade.go:Letter moved to "+c.id) {
+				t.Fatalf("notes %q do not name the move", notes)
+			}
+			var out bytes.Buffer
+			if err := review(&out, "origin/main"); err != nil || strings.Contains(out.String(), "new: production complexity "+c.id) {
+				t.Fatalf("review calls the moved code new: %v\n%s", err, out.String())
+			}
+			firstBaseline(t)
+			b, err := loadBaseline()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if b.Caps[production][complexity][c.id] == 0 || b.Caps[production][complexity]["grade/grade.go:Letter"] != 0 {
+				t.Fatalf("the cap did not move to %s: %v", c.id, b.Caps[production][complexity])
+			}
+			if problems, _, err := check(); err != nil || len(problems) > 0 {
+				t.Fatalf("check with the moved cap: %v %q", err, problems)
+			}
+			moved, err := os.ReadFile(c.file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			write(t, c.file, strings.Replace(string(moved), "\tif curved {\n", "\tif score < 0 {\n\t\tscore = 0\n\t}\n\tif curved {\n", 1))
+			if problems, _, _ := check(); !strings.Contains(strings.Join(problems, "\n"), c.id+" grew") {
+				t.Fatalf("growth after the %s passed: %q", c.name, problems)
+			}
+		})
+	}
+}
+
+// TestRemeasure changes the tools main's baseline was measured with, as a new skill
+// version does: baseline writes a re-measured candidate, and the check accepts it only
+// in a branch that changes no measured code.
+func TestRemeasure(t *testing.T) {
+	measured(t)
+	editBaseline(t, func(b *Baseline) {
+		b.Tools["definitions"] = "0123456789abcdef"
+		b.Caps[production][complexity]["grade/grade.go:Letter"] -= 3
+	})
+	commit(t)
+	if err := runBaseline(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(candidatePath, baselinePath); err != nil {
+		t.Fatal(err)
+	}
+	b, err := loadBaseline()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Tools["definitions"] != definitions || !strings.Contains(b.MeasuredBy, "code-smells") {
+		t.Fatalf("the candidate was not re-measured: %v, %q", b.Tools, b.MeasuredBy)
+	}
+	problems, notes, err := check()
+	if err != nil || len(problems) > 0 {
+		t.Fatalf("check of a re-measure: %v %q", err, problems)
+	}
+	if !strings.Contains(strings.Join(notes, "\n"), "re-measures .smells.json") {
+		t.Fatalf("notes %q do not name the re-measure", notes)
+	}
+	var out bytes.Buffer
+	if err := review(&out, "origin/main"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "looser: caps/production/complexity/grade/grade.go:Letter (") {
+		t.Fatalf("review does not show the old and new cap:\n%s", out.String())
+	}
+	editBaseline(t, func(b *Baseline) { b.Caps[production][complexity]["grade/grade.go:Letter"]++ })
+	if problems, _, _ := check(); !strings.Contains(strings.Join(problems, "\n"), "not what smells baseline measures") {
+		t.Fatalf("a re-measure with a raised cap passed: %q", problems)
+	}
+	editBaseline(t, func(b *Baseline) { b.Caps[production][complexity]["grade/grade.go:Letter"]-- })
+	write(t, "grade/extra.go", "package grade\n\nfunc Extra() int { return 1 }\n")
+	if problems, _, _ := check(); !strings.Contains(strings.Join(problems, "\n"), "change of its own") {
+		t.Fatalf("a re-measure with a code change passed: %q", problems)
+	}
+}
+
+func TestNoDefaultBranch(t *testing.T) {
+	measured(t)
+	git(t, "symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
+	if problems, _, _ := check(); !strings.Contains(strings.Join(problems, "\n"), "origin/HEAD is not set") {
+		t.Fatalf("problems %q do not say the default branch is unknown", problems)
 	}
 }

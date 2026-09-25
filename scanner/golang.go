@@ -42,7 +42,7 @@ func scanGo(s *Scan, r *Rules, paths []string, graph map[string]map[string]bool)
 		}
 		scope := r.scope(p)
 		s.set(scope, fileLines, p, physicalLines(src))
-		functions += goFunctions(s, scope, p, fset, f)
+		functions += goFunctions(s, scope, p, src, fset, f)
 		if scope == production {
 			goImports(graph, p, f, module)
 		}
@@ -55,7 +55,7 @@ func scanGo(s *Scan, r *Rules, paths []string, graph map[string]map[string]bool)
 }
 
 // goFunctions measures each function with a body and returns how many there were.
-func goFunctions(s *Scan, scope, p string, fset *token.FileSet, f *ast.File) int {
+func goFunctions(s *Scan, scope, p string, src []byte, fset *token.FileSet, f *ast.File) int {
 	seen, n := map[string]int{}, 0
 	for _, d := range f.Decls {
 		fn, ok := d.(*ast.FuncDecl)
@@ -67,6 +67,7 @@ func goFunctions(s *Scan, scope, p string, fset *token.FileSet, f *ast.File) int
 		lines := fset.Position(fn.End()).Line - fset.Position(fn.Pos()).Line + 1
 		s.set(scope, functionLines, id, lines)
 		s.set(scope, complexity, id, gocognit.Complexity(fn))
+		s.Content[id] = contentHash(src[fset.Position(fn.Body.Lbrace).Offset:fset.Position(fn.Body.Rbrace).Offset])
 	}
 	return n
 }

@@ -2,7 +2,7 @@
 
 This skill keeps each repository’s code size, complexity, duplication, and imports within committed limits. It measures Go and TypeScript code. The design choice is to keep one shared scanner in the skill and store only each project’s `.smells.json` plus a Makefile target, so every repository measures the same way and none has to install the tools. The alternative, copying the scanner into every repository, was turned down because the copies would drift apart.
 
-Code that is already over a limit may become smaller, but it may not grow. New code must remain within the configured limits.
+Code that is already over a limit may become smaller, but it may not grow. New code must remain within the configured limits. A cap belongs to the code, not to its name: a function or file that moves or is renamed without changing keeps its cap.
 
 ## Install and use
 
@@ -16,7 +16,20 @@ mv .smells.candidate.json .smells.json                # after reading it; then c
 path/to/code-smells/bin/smells check                  # fails if anything grew
 ```
 
-The first run builds the scanner in `~/.cache/code-smells/<build>/`. Here, `<build>` is a hash of the scanner’s source. The first run requires Go 1.26 and Bun. It also needs network access if the required Go modules or TypeScript package are not already cached. Later runs work offline.
+The first run builds the scanner in `~/.cache/code-smells/<build>/`. Here, `<build>` is a hash of the scanner’s source. The first run requires Go 1.26 and Bun. It also needs network access if the required Go modules or TypeScript package are not already cached. Later runs work offline. Bun measures TypeScript on every run. It starts in the skill’s own folder, so a project’s `bunfig.toml` or `.env` is never loaded and cannot run code during a review.
+
+The check compares a branch’s `.smells.json` with the one on the repository’s default branch, which git records as `origin/HEAD`. If `origin/HEAD` is not set, the check fails and says to run `git remote set-head origin --auto`.
+
+## When a new skill version measures differently
+
+`.smells.json` records the measuring tools in `tools`, including a hash of the measuring code. When a new version of this skill measures differently, `check` fails in every repository until that repository re-measures its baseline:
+
+```bash
+path/to/code-smells/bin/smells baseline               # writes a re-measured .smells.candidate.json
+mv .smells.candidate.json .smells.json                # then commit it on its own branch
+```
+
+`baseline` prints each cap that changed with its old and new value, and the candidate records the skill build and Go version in `measured_by`. The check accepts a baseline measured with other tools than the default branch’s only when the branch changes no measured file and the caps are exactly what `baseline` measures, so growth cannot hide in a re-measure. `review` shows the old and new numbers. The Go version is recorded but not compared: gocognit and dupl are pinned, and a new Go parses existing code the same way.
 
 For the complete command list and the rules enforced by `check`, see [SKILL.md](SKILL.md).
 

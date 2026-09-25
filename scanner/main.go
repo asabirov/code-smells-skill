@@ -5,7 +5,7 @@
 //	smells check                  compare the code with .smells.json
 //	smells report [dir]           print the totals and the worst functions
 //	smells baseline               write .smells.candidate.json: the first baseline, or lower caps
-//	smells review [--base ref]    show what a branch changed against ref; never fails on smells
+//	smells review [--base ref]    show what a branch changed against ref (default: origin/HEAD); never fails on smells
 package main
 
 import (
@@ -56,7 +56,7 @@ func parseArgs(args []string) (dir string, run func() error, err error) {
 	case len(args) == 2 && args[0] == "report":
 		return args[1], runReport, nil
 	case len(args) == 1 && args[0] == "review":
-		return ".", func() error { return review(os.Stdout, "origin/main") }, nil
+		return ".", func() error { return review(os.Stdout, defaultBranch()) }, nil
 	case len(args) == 3 && args[0] == "review" && args[1] == "--base":
 		return ".", func() error { return review(os.Stdout, args[2]) }, nil
 	}
@@ -92,7 +92,7 @@ func runCheck() error {
 }
 
 // check measures the code and lists what breaks the baseline, or loosens it compared
-// with main.
+// with the default branch.
 func check() (problems, notes []string, err error) {
 	b, err := loadBaseline()
 	if err != nil {
@@ -103,7 +103,7 @@ func check() (problems, notes []string, err error) {
 		return nil, nil, err
 	}
 	problems, notes = compare(b, s)
-	_, looser, note := guard(b, "origin/main")
+	_, looser, note := guard(b, s, defaultBranch())
 	return append(problems, looser...), append(notes, note...), nil
 }
 
