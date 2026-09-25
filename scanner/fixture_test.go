@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -217,5 +218,20 @@ func TestReviewUsesBaseLimits(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "grew: production complexity grade/grade.go:Letter") {
 		t.Fatalf("a raised limit hid growth:\n%s", out.String())
+	}
+}
+
+// TestProjectBunfigDoesNotRun checks that measuring TypeScript does not start Bun in the
+// project, where a bunfig.toml could preload the project's own code.
+func TestProjectBunfigDoesNotRun(t *testing.T) {
+	measured(t)
+	marker := filepath.Join(t.TempDir(), "ran")
+	write(t, "bunfig.toml", "preload = [\"./pwn.js\"]\n")
+	write(t, "pwn.js", "require(\"node:fs\").writeFileSync("+strconv.Quote(marker)+", \"\");\n")
+	if problems, _, err := check(); err != nil || len(problems) > 0 {
+		t.Fatalf("check: %v %q", err, problems)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("the project's bunfig.toml preload ran inside the scanner")
 	}
 }

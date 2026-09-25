@@ -1,4 +1,5 @@
-// Measures the TypeScript files named on stdin (a JSON array) for the scanner: file and
+// Measures the TypeScript files named on stdin (a JSON array), relative to the project
+// folder given as the only argument, for the scanner: file and
 // function lines, branch complexity, local imports, and lines and groups of identical
 // runs of 100 tokens. A file with a syntax error fails the scan. Uses the compiler that
 // the bun.lock next to this file pins, so the numbers do not drift.
@@ -17,6 +18,8 @@ const LOGICAL = new Set([K.AmpersandAmpersandToken, K.BarBarToken, K.QuestionQue
 type Fn = { name: string; lines: number; complexity: number };
 type Token = { text: string; line: number };
 
+// Bun starts outside the project, so the project's bunfig.toml and .env are not loaded.
+process.chdir(process.argv[2]);
 const paths: string[] = JSON.parse(await Bun.stdin.text());
 const known = new Set(paths);
 const syntaxErrors: string[] = [];

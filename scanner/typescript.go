@@ -53,8 +53,15 @@ func scanTS(s *Scan, r *Rules, paths []string, graph map[string]map[string]bool)
 	if _, err := os.Stat(filepath.Join(tsDir, "node_modules", "typescript", "package.json")); err != nil {
 		return "", fmt.Errorf("the TypeScript compiler is not installed in %s; install Bun, then run bin/smells again", tsDir)
 	}
+	root, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	// Bun starts in tsDir, not in the project, so a bunfig.toml or .env there is never
+	// read: its preload could run the project's code while reviewing someone's branch.
 	input, _ := json.Marshal(paths)
-	cmd := exec.Command(bun, filepath.Join(tsDir, "ts-scan.ts"))
+	cmd := exec.Command(bun, filepath.Join(tsDir, "ts-scan.ts"), root)
+	cmd.Dir = tsDir
 	cmd.Stdin = bytes.NewReader(input)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
