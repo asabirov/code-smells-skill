@@ -54,7 +54,7 @@ Each measurement is an item with a whole-number value. It belongs to either the 
 - `file_lines`: the number of lines in a source file.
 - `fan_out` (production only): the number of local packages (Go folders) or local modules (TypeScript files) imported by a package or module.
 - `duplicate_lines`: the number of lines in a file that belong to a repeated stretch of at least 100 tokens. Go uses dupl’s syntax clones. TypeScript looks for identical runs of 100 tokens while ignoring spaces and comments. Every file is compared with every other file.
-- `duplicate_groups`: each group of repeated stretches is one item. Its name identifies the files it spans and includes a fingerprint of the repeated code. Its value is the number of copies. A group belongs to `production` if any copy belongs to `production`.
+- `duplicate_groups`: each group of repeated stretches is one item. Its name identifies the files it spans and includes a hash of the repeated code. Its value is the number of copies. A group belongs to `production` if any copy belongs to `production`.
 - `cycles` (production only): each import cycle is one item, named after its members.
 
 Run `make check` in this repository to test the skill itself.

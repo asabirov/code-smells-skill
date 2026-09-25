@@ -82,7 +82,7 @@ function measure(file: string) {
     const at = d.start === undefined ? "" : `:${lineOf(s, d.start)}`;
     syntaxErrors.push(`${file}${at}: ${ts.flattenDiagnosticMessageText(d.messageText, "\n")}`);
   }
-  const toks = tokens(raw, s);
+  const toks = tokens(s);
   // A line holds code when a token covers it; comments are trivia and make no tokens.
   const code = new Set(toks.flatMap((t) => Array.from({ length: t.last - t.line + 1 }, (_, i) => t.line + i)));
   const functions: Fn[] = [];
@@ -109,12 +109,19 @@ function measure(file: string) {
   return { file, lines: physicalLines(raw), functions, imports: [...imports].sort(), tokens: toks };
 }
 
-function tokens(raw: string, s: ts.SourceFile): Token[] {
+// The leaves of the parsed tree, in order. The parser knows where a template literal
+// ends, which a raw token scanner does not after a substitution. Doc comments are nodes
+// in the tree, not code, so they are skipped.
+function tokens(s: ts.SourceFile): Token[] {
   const out: Token[] = [];
-  const scanner = ts.createScanner(ts.ScriptTarget.Latest, true, ts.LanguageVariant.Standard, raw);
-  for (let k = scanner.scan(); k !== K.EndOfFileToken; k = scanner.scan()) {
-    out.push({ text: scanner.getTokenText(), line: lineOf(s, scanner.getTokenStart()), last: lineOf(s, scanner.getTokenEnd()) });
-  }
+  const walk = (n: ts.Node) => {
+    if (n.kind >= K.FirstJSDocNode && n.kind <= K.LastJSDocNode) return;
+    const kids = n.getChildren(s);
+    const start = n.getStart(s);
+    if (kids.length > 0) kids.forEach(walk);
+    else if (start < n.end) out.push({ text: n.getText(s), line: lineOf(s, start), last: lineOf(s, n.end) });
+  };
+  walk(s);
   return out;
 }
 
@@ -155,7 +162,7 @@ function duplicates(files: { file: string; tokens: Token[] }[]) {
   return {
     duplicates: Object.fromEntries([...covered].sort().map(([f, lines]) => [f, lines.size])),
     groups: [...groups.values()].map((g) => ({
-      fingerprint: Bun.hash([...g.keys].sort().join(",")).toString(16).padStart(16, "0"),
+      hash: Bun.hash([...g.keys].sort().join(",")).toString(16).padStart(16, "0"),
       files: g.files,
       copies: g.copies,
     })),

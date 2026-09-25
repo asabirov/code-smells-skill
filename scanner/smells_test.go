@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -232,6 +234,10 @@ func TestFreedCapsGoBySize(t *testing.T) {
 			t.Errorf("%s: problems %q, want %q", c.name, got, c.want)
 		}
 	}
+	_, notes := compare(b, testScan(map[string]int{"b.go:Other": 30}))
+	if got := strings.Join(notes, "\n"); !strings.Contains(got, "a.go:Big is gone; smells baseline drops its cap of 40") {
+		t.Errorf("a freed cap nothing took: notes %q", got)
+	}
 	branch := testBaseline()
 	branch.Caps[production][complexity] = map[string]int{"b.go:One": 28, "b.go:Two": 35}
 	s := testScan(map[string]int{"b.go:One": 28, "b.go:Two": 35})
@@ -262,5 +268,52 @@ func TestFunctionLinesCountOnlyCode(t *testing.T) {
 				t.Errorf("%s is %d lines, want 72", id, v)
 			}
 		}
+	}
+}
+
+// tsSQL and tsTemplates hold functions whose lines trip a token scanner that does not track
+// template literals: substitutions, nested templates, comment markers inside strings
+// and a doc comment inside a body. The comment on each gives its code lines.
+const tsSQL = "export function sql(name: string) { // 6\n" +
+	"  // who asks\n  const q = `select *\n    from ${name}\n    where 1`;\n\n  /* then */\n  return q;\n}\n\n"
+
+const tsTemplates = tsSQL +
+	"/** Doc. */\nexport function after() { // 3\n  // note\n\n  return 1;\n}\n\n" +
+	"export function nested(xs: string[]) { // 6, and map 2\n  return `<ul>\n${xs.map((x) => `<li>${x}\n</li>`).join(\"\")}\n</ul>`;\n}\n\n" +
+	"export function strs() { // 8\n  const a = \"// not a comment\";\n  const b = '/* nor';\n  const c = `this */\n// still a string\n`;\n  return a + b + c;\n}\n\n" +
+	"export function docs() { // 4\n  /**\n   * Inner doc.\n   */\n  const x = 1;\n  return x;\n}\n\n" +
+	"export function last() { // 3\n  // done\n  return 0;\n}\n"
+
+// TestTypeScriptLinesAfterTemplates counts code lines around multi-line templates with
+// substitutions, which once made every later comment and blank line count as code.
+func TestTypeScriptLinesAfterTemplates(t *testing.T) {
+	s, err := scanSources(t, t.TempDir(), map[string]string{"a.ts": tsTemplates})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]int{"sql": 6, "after": 3, "nested": 6, "nested/map": 2, "strs": 8, "docs": 4, "last": 3}
+	got := map[string]int{}
+	for id, v := range s.Values[production][functionLines] {
+		got[id[strings.LastIndex(id, ":")+1:]] = v
+	}
+	if !maps.Equal(got, want) {
+		t.Fatalf("code lines %v, want %v", got, want)
+	}
+}
+
+// TestTypeScriptDuplicatesAfterTemplates finds a clone that follows a multi-line template
+// with a substitution in one file and stands alone in another.
+func TestTypeScriptDuplicatesAfterTemplates(t *testing.T) {
+	clone := "export function f(x: number) {\n"
+	for i := range 40 {
+		clone += fmt.Sprintf("\tx = x + %d;\n", i)
+	}
+	clone += "}\n"
+	s, err := scanSources(t, t.TempDir(), map[string]string{"a.ts": tsSQL + clone, "b.ts": clone})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Values[production][duplicateGroups]) != 1 {
+		t.Fatalf("duplicate groups %v, want one", s.Values[production][duplicateGroups])
 	}
 }

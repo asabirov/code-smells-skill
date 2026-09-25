@@ -33,9 +33,9 @@ type tsResult struct {
 	} `json:"files"`
 	Duplicates map[string]int `json:"duplicates"`
 	Groups     []struct {
-		Fingerprint string   `json:"fingerprint"`
-		Files       []string `json:"files"`
-		Copies      int      `json:"copies"`
+		Hash   string   `json:"hash"`
+		Files  []string `json:"files"`
+		Copies int      `json:"copies"`
 	} `json:"groups"`
 }
 
@@ -93,7 +93,7 @@ func scanTS(s *Scan, r *Rules, paths []string, graph map[string]map[string]bool)
 		s.set(r.scope(file), duplicateLines, file, n)
 	}
 	for _, g := range res.Groups {
-		setGroup(s, r, g.Files, g.Fingerprint, g.Copies)
+		setGroup(s, r, g.Files, g.Hash, g.Copies)
 	}
 	return res.TypeScript, nil
 }

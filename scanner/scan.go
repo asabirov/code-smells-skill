@@ -133,15 +133,15 @@ func uniqueID(seen map[string]int, id string) string {
 }
 
 // setGroup records a duplicate group, named by its sorted distinct files and the first
-// twelve characters of its fingerprint.
-func setGroup(s *Scan, r *Rules, members []string, fingerprint string, copies int) {
+// twelve characters of its hash.
+func setGroup(s *Scan, r *Rules, members []string, hash string, copies int) {
 	sort.Strings(members)
 	members = slices.Compact(members)
 	scope := tests
 	if slices.ContainsFunc(members, func(m string) bool { return r.scope(m) == production }) {
 		scope = production
 	}
-	id := fmt.Sprintf("%s @%.12s", strings.Join(members, " + "), fingerprint)
+	id := fmt.Sprintf("%s @%.12s", strings.Join(members, " + "), hash)
 	s.set(scope, duplicateGroups, id, copies)
 }
 

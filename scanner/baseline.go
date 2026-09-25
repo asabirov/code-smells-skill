@@ -149,6 +149,8 @@ func compareMetric(b *Baseline, s *Scan, scope, metric string) (problems, notes 
 	for _, id := range sortedKeys(caps) {
 		if to, ok := movedTo[id]; ok {
 			notes = append(notes, fmt.Sprintf("%s %s: %s is gone, and %s takes its cap of %d; smells baseline moves the cap", scope, metric, id, to, caps[id]))
+		} else if _, ok := values[id]; !ok {
+			notes = append(notes, fmt.Sprintf("%s %s: %s is gone; smells baseline drops its cap of %d", scope, metric, id, caps[id]))
 		} else if values[id] < caps[id] {
 			notes = append(notes, fmt.Sprintf("%s %s: %s is %d, below its cap of %d; smells baseline can lower the cap", scope, metric, id, values[id], caps[id]))
 		}
