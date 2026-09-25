@@ -333,8 +333,15 @@ func TestRemeasure(t *testing.T) {
 	}
 	editBaseline(t, func(b *Baseline) { b.Caps[production][complexity]["grade/grade.go:Letter"]-- })
 	write(t, "grade/extra.go", "package grade\n\nfunc Extra() int { return 1 }\n")
-	if problems, _, _ := check(); !strings.Contains(strings.Join(problems, "\n"), "change of its own") {
+	if problems, _, _ := check(); !strings.Contains(strings.Join(problems, "\n"), "differs from origin/main") {
 		t.Fatalf("a re-measure with a code change passed: %q", problems)
+	}
+	if err := os.Remove("grade/extra.go"); err != nil {
+		t.Fatal(err)
+	}
+	write(t, "go.mod", "module example.com/other\n\ngo 1.26\n")
+	if problems, _, _ := check(); !strings.Contains(strings.Join(problems, "\n"), "differs from origin/main") {
+		t.Fatalf("a re-measure with a go.mod change passed: %q", problems)
 	}
 }
 
@@ -343,5 +350,24 @@ func TestNoDefaultBranch(t *testing.T) {
 	git(t, "symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
 	if problems, _, _ := check(); !strings.Contains(strings.Join(problems, "\n"), "origin/HEAD is not set") {
 		t.Fatalf("problems %q do not say the default branch is unknown", problems)
+	}
+}
+
+// TestForgedMoveFails deletes the capped Letter, adds a different function over the
+// limit, and hands it Letter's cap and fingerprint by hand: that is not a move.
+func TestForgedMoveFails(t *testing.T) {
+	measured(t)
+	if err := os.Remove("grade/grade.go"); err != nil {
+		t.Fatal(err)
+	}
+	write(t, "grade/other.go", "package grade\n\nfunc Other(a bool) int {\n"+repeat("if a {\n\t\ta = !a\n\t}", 16)+"\treturn 0\n}\n")
+	editBaseline(t, func(b *Baseline) {
+		caps := b.Caps[production][complexity]
+		caps["grade/other.go:Other"] = caps["grade/grade.go:Letter"]
+		delete(caps, "grade/grade.go:Letter")
+		b.Fingerprints["grade/other.go:Other"] = b.Fingerprints["grade/grade.go:Letter"]
+	})
+	if problems, _, _ := check(); !strings.Contains(strings.Join(problems, "\n"), "caps/production/complexity/grade/other.go:Other is looser") {
+		t.Fatalf("a forged move passed: %q", problems)
 	}
 }

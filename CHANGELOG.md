@@ -8,7 +8,7 @@
 - The check fails, and reports both hashes, when the baseline was measured with different measuring code.
 - Use `review --base <ref>` to see what a branch changed without failing the check. Use `report <dir>` to survey a repository that has no baseline.
 - A cap follows its code: a function or file that moves or is renamed with the same content keeps its cap, and `baseline` moves the cap to the new name. Changed or grown code still fails.
-- `baseline` re-measures a baseline written by another skill version, prints the old and new numbers, and records the build in `measured_by`. The check accepts a re-measure only on a branch that changes no measured file. The Go version is recorded there but no longer compared.
+- `baseline` re-measures a baseline written by another skill version, prints the old and new numbers, and records the build in `measured_by`. The check accepts a re-measure only when every measured file and `go.mod` match the default branch, and its caps are what `baseline` measures. The Go version is recorded there but no longer compared.
 - The check and `review` compare with the repository's default branch (`origin/HEAD`) instead of `origin/main`, and say so when it is unknown.
 - Bun starts in the skill's folder, not the project, so a project's `bunfig.toml` or `.env` cannot run code inside the scanner.
 - `baseline` writes the repository's first baseline as a candidate for moving into place. `.smells.json` no longer contains `schema` or `metrics`; the README defines the metrics, and the check compares the complete `tools` block, including the `definitions` hash.

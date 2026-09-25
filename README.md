@@ -29,7 +29,7 @@ path/to/code-smells/bin/smells baseline               # writes a re-measured .sm
 mv .smells.candidate.json .smells.json                # then commit it on its own branch
 ```
 
-`baseline` prints each cap that changed with its old and new value, and the candidate records the skill build and Go version in `measured_by`. The check accepts a baseline measured with other tools than the default branch’s only when the branch changes no measured file and the caps are exactly what `baseline` measures, so growth cannot hide in a re-measure. `review` shows the old and new numbers. The Go version is recorded but not compared: gocognit and dupl are pinned, and a new Go parses existing code the same way.
+`baseline` prints each cap that changed with its old and new value, and the candidate records the skill build and Go version in `measured_by`. The check accepts a baseline measured with other tools than the default branch’s only when every measured file and `go.mod` match the default branch and the caps are exactly what `baseline` measures, so growth cannot hide in a re-measure. `review` shows the old and new numbers. The Go version is recorded but not compared: gocognit and dupl are pinned, and a new Go rarely parses existing code differently.
 
 For the complete command list and the rules enforced by `check`, see [SKILL.md](SKILL.md).
 

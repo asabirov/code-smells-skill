@@ -254,7 +254,7 @@ func runBaseline() error {
 		fmt.Printf("re-measured with %s; %s was measured with %s\n", formatMap(s.Tools), baselinePath, formatMap(b.Tools))
 		fmt.Printf("Against %s: ", baselinePath)
 		printChanges(os.Stdout, b, &candidate)
-		fmt.Println("Commit it in a change of its own: the check refuses a re-measure together with changes to measured code.")
+		fmt.Println("Commit only this file, on a branch from the latest default branch: the check refuses a re-measure whose measured code differs from the default branch.")
 	default:
 		problems, notes := compare(b, s)
 		if len(problems) > 0 {
@@ -298,7 +298,7 @@ const noDefaultBranch = "origin/HEAD is not set, so this repository's default br
 // guard compares b with the baseline committed at ref: anything looser needs an
 // exception. A baseline measured by other tools than ref's is a re-measure: its caps
 // and totals cannot be compared with ref's, so it is accepted only when they are what
-// scan s measures and the branch changes no measured code. It reads what was last
+// scan s measures and the measured code matches ref's. It reads what was last
 // fetched, so the check needs no network.
 func guard(b *Baseline, s *Scan, ref string) (old *Baseline, problems, notes []string) {
 	if ref == "" {
@@ -315,14 +315,17 @@ func guard(b *Baseline, s *Scan, ref string) (old *Baseline, problems, notes []s
 	if err != nil {
 		return nil, []string{err.Error()}, nil
 	}
-	keys := loosenings(b, old)
+	// A cap follows only content that is really there, never a fingerprint written by hand.
+	actual := *b
+	actual.Fingerprints = s.Content
+	keys := loosenings(&actual, old)
 	if !maps.Equal(b.Tools, old.Tools) {
 		changed, err := codeChanged(b, ref)
 		if err != nil {
 			return old, []string{err.Error()}, nil
 		}
 		if changed {
-			return old, []string{fmt.Sprintf("this branch re-measures %s and also changes measured code since %s; re-measure in a change of its own, on top of %s", baselinePath, ref, ref)}, nil
+			return old, []string{fmt.Sprintf("this branch re-measures %s, but its measured code differs from %s; re-measure in a change of its own, on top of %s", baselinePath, ref, ref)}, nil
 		}
 		if caps, aggregates, _ := capsFor(b, s, false); !reflect.DeepEqual([]any{caps, aggregates}, []any{b.Caps, b.Aggregate}) {
 			return old, []string{fmt.Sprintf("this branch re-measures %s, but its caps are not what smells baseline measures; run smells baseline and move the candidate into place", baselinePath)}, nil
@@ -341,18 +344,14 @@ func guard(b *Baseline, s *Scan, ref string) (old *Baseline, problems, notes []s
 	return old, problems, notes
 }
 
-// codeChanged says whether any file under files.include differs from where the branch
-// left ref, including files git does not track yet.
+// codeChanged says whether any file under files.include, or go.mod, which decides what
+// counts as a local import, differs from ref, including files git does not track yet.
 func codeChanged(b *Baseline, ref string) (bool, error) {
-	base, err := exec.Command("git", "merge-base", ref, "HEAD").Output()
-	if err != nil {
-		return false, fmt.Errorf("git merge-base %s HEAD: %w", ref, err)
-	}
-	args := append([]string{"diff", "--quiet", strings.TrimSpace(string(base)), "--"}, b.Files.Include...)
-	if err := exec.Command("git", args...).Run(); err != nil {
+	paths := append([]string{"go.mod"}, b.Files.Include...)
+	if err := exec.Command("git", append([]string{"diff", "--quiet", ref, "--"}, paths...)...).Run(); err != nil {
 		return true, nil
 	}
-	args = append([]string{"ls-files", "--others", "--exclude-standard", "--"}, b.Files.Include...)
+	args := append([]string{"ls-files", "--others", "--exclude-standard", "--"}, paths...)
 	out, err := exec.Command("git", args...).Output()
 	return len(out) > 0, err
 }

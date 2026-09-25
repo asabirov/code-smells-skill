@@ -25,13 +25,13 @@ description: Measure code size, complexity, duplication and imports in a Go or T
 - A branch's `.smells.json` must not be looser than the version on the default branch (`origin/HEAD`), unless `exceptions` lists the loosened key with a `reason` and an `issue`.
 - The scan fails if it finds a file it cannot parse, or if a listed language has no files or no functions.
 - The baseline records the measuring tools in `tools`, including a `definitions` hash of the measuring code. If this skill measures code differently, the check fails and names both sets of tools.
-- A baseline measured with other tools than the default branch's is a re-measure. The check accepts it only when the branch changes no measured file and its caps are exactly what `baseline` measures.
+- A baseline measured with other tools than the default branch's is a re-measure. The check accepts it only when every measured file and `go.mod` match the default branch and its caps are exactly what `baseline` measures.
 
 ## Fixing a failed check
 
 If code has grown, split or simplify it; do not raise its cap. If the growth is genuinely required, raise the cap by hand and add an exception with the reason and the issue. A reviewer must then decide whether to accept it.
 
-If the check says the baseline was measured with other tools, this machine's skill measures differently from the one that wrote the baseline. Re-measure it on a branch of its own, started from the default branch: run `bin/smells baseline`, read the old and new numbers it prints, move the candidate into place, and commit only that file. A reviewer sees the same numbers in `bin/smells review`.
+If the check says the baseline was measured with other tools, this machine's skill measures differently from the one that wrote the baseline. Re-measure it on a branch of its own, started from the latest default branch: run `bin/smells baseline`, read the old and new numbers it prints, move the candidate into place, and commit only that file. A reviewer sees the same numbers in `bin/smells review`.
 
 ## `.smells.json`
 
