@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# Runs the code-smells scanner in the current repository. The first run builds it into
+# ~/.cache/code-smells/<build>/, where <build> is a hash of the scanner's source, and
+# installs the TypeScript compiler its bun.lock pins next to it. That needs Go, Bun and
+# the network once; every later run reuses the build and works offline.
+set -euo pipefail
+
+skill=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+src=$skill/scanner
+
+sha256() {
+  if command -v sha256sum >/dev/null; then sha256sum; else shasum -a 256; fi
+}
+
+build=$(cd "$src" && for f in go.mod go.sum *.go typescript/ts-scan.ts typescript/package.json typescript/bun.lock; do
+  [[ $f == *_test.go ]] && continue
+  printf '%s %s\n' "$f" "$(wc -c <"$f")"
+  cat "$f"
+done | sha256 | cut -c1-16)
+cache=${XDG_CACHE_HOME:-$HOME/.cache}/code-smells/$build
+
+fail() {
+  echo "code-smells: could not build the scanner into $cache: $1" >&2
+  exit 1
+}
+
+# put NAME COMMAND... runs COMMAND in a new folder and moves it to $cache/NAME, so an
+# interrupted build leaves nothing half-made behind.
+put() {
+  local name=$1 tmp
+  shift
+  mkdir -p "$cache"
+  tmp=$(mktemp -d "$cache/$name.tmp.XXXXXX")
+  if ! (cd "$tmp" && "$@"); then
+    rm -rf "$tmp"
+    fail "$name failed; see above"
+  fi
+  # Another run may have finished the same build first; both copies are the same.
+  if [[ -e $cache/$name ]]; then rm -rf "$tmp"; else mv "$tmp" "$cache/$name"; fi
+}
+
+build_scanner() {
+  GOFLAGS=-mod=readonly go -C "$src" build -trimpath -o "$PWD/smells" .
+}
+
+install_typescript() {
+  cp "$src"/typescript/{ts-scan.ts,package.json,bun.lock} . && bun install --frozen-lockfile --silent
+}
+
+if [[ ! -x $cache/bin/smells ]]; then
+  command -v go >/dev/null || fail "Go is not on PATH, and the first run builds the scanner with it"
+  echo "code-smells: first run of build $build; building the scanner into $cache" >&2
+  put bin build_scanner
+fi
+if [[ ! -d $cache/typescript ]] && command -v bun >/dev/null; then
+  echo "code-smells: installing the pinned TypeScript compiler into $cache" >&2
+  put typescript install_typescript
+fi
+
+commit=$(git -C "$skill" rev-parse --short=12 HEAD 2>/dev/null || true)
+if [[ -z $commit ]]; then
+  version="build $build"
+elif [[ -n $(git -C "$skill" status --porcelain -- scanner 2>/dev/null) ]]; then
+  version="$commit with local changes, build $build"
+else
+  version="$commit, build $build"
+fi
+CODE_SMELLS_VERSION=$version exec "$cache/bin/smells" "$@"
