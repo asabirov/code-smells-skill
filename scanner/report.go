@@ -207,7 +207,7 @@ func change(key string, old, b *Baseline) string {
 }
 
 // reviewHotspots lists items over base's limit that base's baseline did not cap, naming
-// the removed item whose cap one takes, and items that grew past base's cap, so a
+// the item whose freed cap one takes, and items that grew past base's cap, so a
 // branch that raises a limit hides nothing.
 func reviewHotspots(w io.Writer, base string, old, b *Baseline, s *Scan) {
 	var found []string
@@ -218,7 +218,7 @@ func reviewHotspots(w io.Writer, base string, old, b *Baseline, s *Scan) {
 				limit = b.Budgets[scope][metric]
 			}
 			caps, values := old.Caps[scope][metric], s.Values[scope][metric]
-			moved := inherit(caps, uncapped(values, caps, limit), s)
+			moved := inherit(caps, uncapped(values, caps, limit), s, values, limit)
 			for _, id := range sortedKeys(values) {
 				v := values[id]
 				was, capped := caps[id]
@@ -226,7 +226,7 @@ func reviewHotspots(w io.Writer, base string, old, b *Baseline, s *Scan) {
 				switch {
 				case v <= limit:
 				case took:
-					found = append(found, fmt.Sprintf("new: %s %s %s is %d, limit %d; it takes the cap of %d from %s, which is gone", scope, metric, id, v, limit, caps[from], from))
+					found = append(found, fmt.Sprintf("new: %s %s %s is %d, limit %d; it takes the cap of %d from %s, which %s", scope, metric, id, v, limit, caps[from], from, capSource(values, from)))
 				case !capped:
 					found = append(found, fmt.Sprintf("new: %s %s %s is %d, limit %d", scope, metric, id, v, limit))
 				case v > was:

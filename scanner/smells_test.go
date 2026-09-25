@@ -250,6 +250,73 @@ func TestFreedCapsGoBySize(t *testing.T) {
 	}
 }
 
+func TestShrunkCaps(t *testing.T) {
+	for _, c := range []struct {
+		name           string
+		source, target int
+		pass           bool
+	}{
+		{"below", 14, 40, true},
+		{"at limit", 15, 40, true},
+		{"still above", 16, 20, false},
+		{"larger recipient", 15, 41, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			b := testBaseline()
+			s := testScan(map[string]int{"a.go:Big": c.source, "b.go:New": c.target})
+			problems, _ := compare(b, s)
+			if (len(problems) == 0) != c.pass {
+				t.Fatalf("problems %q, want pass %v", problems, c.pass)
+			}
+			branch := testBaseline()
+			branch.Caps[production][complexity] = map[string]int{"b.go:New": c.target}
+			if got := loosenings(branch, b, s); (len(got) == 0) != c.pass {
+				t.Fatalf("loosenings %q, want pass %v", got, c.pass)
+			}
+		})
+	}
+	b := testBaseline()
+	s := testScan(map[string]int{"a.go:Big": 15, "b.go:New": 40})
+	branch := testBaseline()
+	branch.Caps[production][complexity]["b.go:New"] = 40
+	if got := loosenings(branch, b, s); len(got) == 0 {
+		t.Fatal("keeping the freed cap while adding another passed")
+	}
+}
+
+func TestShrunkCapChain(t *testing.T) {
+	original, b := testBaseline(), testBaseline()
+	values := map[string]int{"a.go:Big": 40}
+	previous := "a.go:Big"
+	for i, size := range []int{35, 30, 20, 16} {
+		id := fmt.Sprintf("b.go:Step%d", i)
+		values[previous], values[id] = 15, size
+		s := testScan(values)
+		if problems, _ := compare(b, s); len(problems) != 0 {
+			t.Fatalf("step %d: %q", i, problems)
+		}
+		next := testBaseline()
+		next.Caps, next.Aggregate = capsFor(b, s, true)
+		if got := loosenings(next, b, s); len(got) != 0 {
+			t.Fatalf("step %d loosens prior baseline: %q", i, got)
+		}
+		if got := loosenings(next, original, s); len(got) != 0 {
+			t.Fatalf("step %d loosens original baseline: %q", i, got)
+		}
+		was, now := b.Aggregate[production][complexity], next.Aggregate[production][complexity]
+		if now.Violations > was.Violations || now.Excess > was.Excess || len(next.Caps[production][complexity]) != 1 || next.Caps[production][complexity][id] != size {
+			t.Fatalf("step %d grew caps or totals: %+v", i, next)
+		}
+		values[id] = 15
+		values["c.go:TooBig"] = size + 1
+		if problems, _ := compare(next, testScan(values)); len(problems) == 0 {
+			t.Fatalf("step %d regained spent capacity", i)
+		}
+		delete(values, "c.go:TooBig")
+		b, previous = next, id
+	}
+}
+
 // TestFunctionLinesCountOnlyCode measures a function of 104 lines, 72 of them code, with
 // a doc comment above: only the code lines count, so it stays under the limit of 80.
 func TestFunctionLinesCountOnlyCode(t *testing.T) {

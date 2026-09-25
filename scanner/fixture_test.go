@@ -326,6 +326,28 @@ func TestCapFollowsMovedCode(t *testing.T) {
 	}
 }
 
+func TestWrapperTakesFreedCap(t *testing.T) {
+	measured(t)
+	grade, err := os.ReadFile("grade/grade.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := strings.Replace(string(grade), "func Letter(", "func letter(", 1)
+	src += "\nfunc Letter(score int, curved bool) string { return letter(score, curved) }\n"
+	write(t, "grade/grade.go", src)
+	if problems, notes, err := check(); err != nil || len(problems) > 0 {
+		t.Fatalf("wrapper refactor: %v %q; notes %q", err, problems, notes)
+	}
+	firstBaseline(t)
+	if problems, _, err := check(); err != nil || len(problems) > 0 {
+		t.Fatalf("wrapper with transferred baseline: %v %q", err, problems)
+	}
+	var out bytes.Buffer
+	if err := review(&out, "origin/main"); err != nil || !strings.Contains(out.String(), "grade/grade.go:letter is 18, limit 15; it takes the cap of 18 from grade/grade.go:Letter, which is at or below the limit") {
+		t.Fatalf("review must name the recipient and shrunk source: %v\n%s", err, out.String())
+	}
+}
+
 // TestRemeasure changes the tools main's baseline was measured with, as a new skill
 // version does: baseline writes a re-measured candidate, and the check accepts it only
 // in a branch that changes no measured code.

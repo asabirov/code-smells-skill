@@ -127,7 +127,7 @@ func compareMetric(b *Baseline, s *Scan, scope, metric string) (problems, notes 
 	limit := b.Budgets[scope][metric]
 	caps := b.Caps[scope][metric]
 	values := s.Values[scope][metric]
-	moved := inherit(caps, uncapped(values, caps, limit), s)
+	moved := inherit(caps, uncapped(values, caps, limit), s, values, limit)
 	for _, id := range sortedKeys(values) {
 		v := values[id]
 		limitCap, capped := caps[id]
@@ -148,7 +148,7 @@ func compareMetric(b *Baseline, s *Scan, scope, metric string) (problems, notes 
 	}
 	for _, id := range sortedKeys(caps) {
 		if to, ok := movedTo[id]; ok {
-			notes = append(notes, fmt.Sprintf("%s %s: %s is gone, and %s takes its cap of %d; smells baseline moves the cap", scope, metric, id, to, caps[id]))
+			notes = append(notes, fmt.Sprintf("%s %s: %s %s, and %s takes its cap of %d; smells baseline moves the cap", scope, metric, id, capSource(values, id), to, caps[id]))
 		} else if _, ok := values[id]; !ok {
 			notes = append(notes, fmt.Sprintf("%s %s: %s is gone; smells baseline drops its cap of %d", scope, metric, id, caps[id]))
 		} else if values[id] < caps[id] {
@@ -174,16 +174,15 @@ func aggregate(values map[string]int, limit int) Aggregate {
 	return a
 }
 
-// inherit gives items in want, which have no cap of their own, the caps of removed items:
-// caps whose item scan s no longer measures at all. An item may take a cap no smaller
-// than its value. Smaller items choose first and each takes the smallest cap that fits,
+// inherit gives uncapped items in want caps freed by removal or reaching the limit.
+// An item may take a cap no smaller than its value. Smaller items choose first and each takes the smallest cap that fits,
 // so a function split in two can use two freed caps. The match is by size only, so a
-// new function may take a removed one's cap; the totals still cannot grow, and review
+// new function may take a freed cap; the totals still cannot grow, and review
 // names it.
-func inherit(caps, want map[string]int, s *Scan) map[string]string {
+func inherit(caps, want map[string]int, s *Scan, values map[string]int, limit int) map[string]string {
 	var free []string
 	for _, id := range sortedKeys(caps) {
-		if !s.measures(id) {
+		if v, present := values[id]; !s.measures(id) || present && v <= limit {
 			free = append(free, id)
 		}
 	}
@@ -198,6 +197,13 @@ func inherit(caps, want map[string]int, s *Scan) map[string]string {
 		}
 	}
 	return pairs
+}
+
+func capSource(values map[string]int, id string) string {
+	if _, present := values[id]; present {
+		return "is at or below the limit"
+	}
+	return "is gone"
 }
 
 // uncapped keeps the values over limit that caps does not cap.
@@ -224,7 +230,7 @@ func (s *Scan) measures(id string) bool {
 }
 
 // capsFor caps every item now over its limit at its current value. When lowering, an
-// item keeps a cap only if it had one or took a removed item's; compare has already
+// item keeps a cap only if it had one or took a freed cap; compare has already
 // refused anything new.
 func capsFor(b *Baseline, s *Scan, lowering bool) (map[string]map[string]map[string]int, map[string]map[string]Aggregate) {
 	caps := map[string]map[string]map[string]int{}
@@ -235,7 +241,7 @@ func capsFor(b *Baseline, s *Scan, lowering bool) (map[string]map[string]map[str
 			values := s.Values[scope][metric]
 			caps[scope][metric] = map[string]int{}
 			aggregates[scope][metric] = aggregate(values, limit)
-			moved := inherit(b.Caps[scope][metric], uncapped(values, b.Caps[scope][metric], limit), s)
+			moved := inherit(b.Caps[scope][metric], uncapped(values, b.Caps[scope][metric], limit), s, values, limit)
 			for id, v := range values {
 				_, had := b.Caps[scope][metric][id]
 				_, isMove := moved[id]
@@ -417,7 +423,7 @@ func looserMetric(b, old *Baseline, s *Scan, scope, metric string) []string {
 	oldCaps, caps := old.Caps[scope][metric], b.Caps[scope][metric]
 	freed := maps.Clone(oldCaps)
 	maps.DeleteFunc(freed, func(id string, _ int) bool { _, kept := caps[id]; return kept })
-	moved := inherit(freed, uncapped(caps, oldCaps, -1), s)
+	moved := inherit(freed, uncapped(caps, oldCaps, -1), s, s.Values[scope][metric], old.Budgets[scope][metric])
 	for _, id := range sortedKeys(caps) {
 		was, ok := oldCaps[id]
 		if from, isMove := moved[id]; isMove {
