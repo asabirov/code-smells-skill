@@ -31,6 +31,8 @@ description: Measure code size, complexity, duplication and imports in a Go or T
 
 If code has grown, split or simplify it; do not raise its cap. If the growth is genuinely required, raise the cap by hand and add an exception with the reason and the issue. A reviewer must then decide whether to accept it.
 
+If the check says a fingerprint matches neither the code nor the default branch, the code of a capped item changed after `baseline` last wrote its fingerprint. Run `bin/smells baseline` again and move the candidate into place. Fingerprints are only ever written by `baseline`.
+
 If the check says the baseline was measured with other tools, this machine's skill measures differently from the one that wrote the baseline. Re-measure it on a branch of its own, started from the latest default branch: run `bin/smells baseline`, read the old and new numbers it prints, move the candidate into place, and commit only that file. A reviewer sees the same numbers in `bin/smells review`.
 
 ## `.smells.json`

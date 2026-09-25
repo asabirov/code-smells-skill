@@ -316,11 +316,11 @@ func guard(b *Baseline, s *Scan, ref string) (old *Baseline, problems, notes []s
 		return nil, []string{err.Error()}, nil
 	}
 	// A cap follows only content that is really there, never a fingerprint written by
-	// hand. The guard pairs moves by the code's own hashes. Check pairs them by the
-	// fingerprints of code that is gone, which must be ref's.
+	// hand. The guard pairs moves by the code's own hashes. Check pairs them by stored
+	// fingerprints, so any that differ from ref's must be the code's own.
 	for _, id := range sortedKeys(b.Fingerprints) {
-		if f := b.Fingerprints[id]; s.Content[id] == "" && f != old.Fingerprints[id] {
-			problems = append(problems, fmt.Sprintf("fingerprints/%s is for code that is gone, and differs from %s; only smells baseline writes fingerprints", id, ref))
+		if f := b.Fingerprints[id]; f != old.Fingerprints[id] && f != s.Content[id] {
+			problems = append(problems, fmt.Sprintf("fingerprints/%s matches neither the code nor %s; run smells baseline, which writes fingerprints from the code", id, ref))
 		}
 	}
 	actual := *b

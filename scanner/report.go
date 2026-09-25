@@ -140,7 +140,9 @@ func review(w io.Writer, base string) error {
 	if old == nil {
 		fmt.Fprintf(w, "\n%s has no %s, so there is nothing to compare the baseline with.\n", base, baselinePath)
 	} else {
-		reviewBaseline(w, base, old, b)
+		actual := *b
+		actual.Fingerprints = s.Content
+		reviewBaseline(w, base, old, &actual)
 		reviewHotspots(w, base, old, b, s)
 	}
 	fmt.Fprintln(w, worstHeading)

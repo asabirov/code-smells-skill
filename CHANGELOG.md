@@ -26,4 +26,5 @@ From the CTO and security reviews of PR #2:
 - The launcher trusts whatever is in the cache folder. It should create it with mode 700 and refuse one that other users can write to.
 - The scanner build inherits the caller's Go environment, such as `GOWORK` and `GOINSECURE`. Build with `GOWORK=off` and `CGO_ENABLED=0`.
 - The note for a capped item that no longer exists says it "is 0, below its cap". It should say the item is gone and `baseline` drops the cap.
+- Moves are paired in name order. Two capped functions with identical bodies but different caps (for example, signatures of different lengths) that are both renamed can be paired the wrong way round, and one then fails.
 - A package that moves keeps no `fan_out` cap: moves are matched for functions, files and duplicate groups only.

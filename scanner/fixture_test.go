@@ -237,8 +237,9 @@ func TestProjectBunfigDoesNotRun(t *testing.T) {
 	}
 }
 
-// TestShrinkTwice lowers Letter's cap with baseline, then shrinks it again without
-// running baseline: its fingerprint is stale, which must not fail the check.
+// TestShrinkTwice lowers Letter's cap with baseline, then shrinks it again: the stored
+// fingerprint is now stale, so the check asks for baseline, which passes after it runs.
+// A stale fingerprint is refused because it cannot be told apart from a forged one.
 func TestShrinkTwice(t *testing.T) {
 	measured(t)
 	grade, err := os.ReadFile("grade/grade.go")
@@ -252,8 +253,12 @@ func TestShrinkTwice(t *testing.T) {
 	if b, _ := loadBaseline(); b.Caps[production][complexity]["grade/grade.go:Letter"] != 17 {
 		t.Fatalf("Letter's cap is %d, want 17", b.Caps[production][complexity]["grade/grade.go:Letter"])
 	}
+	if problems, _, _ := check(); !strings.Contains(strings.Join(problems, "\n"), "run smells baseline") {
+		t.Fatalf("a stale fingerprint passed: %q", problems)
+	}
+	firstBaseline(t)
 	if problems, _, err := check(); err != nil || len(problems) > 0 {
-		t.Fatalf("check after shrinking twice: %v %q", err, problems)
+		t.Fatalf("check after baseline: %v %q", err, problems)
 	}
 }
 
@@ -425,7 +430,18 @@ func TestForgedFingerprintFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	editBaseline(t, func(b *Baseline) { b.Fingerprints["grade/grade.go:Letter"] = s.Content["grade/other.go:Other"] })
-	if problems, _, _ := check(); !strings.Contains(strings.Join(problems, "\n"), "fingerprints/grade/grade.go:Letter is for code that is gone") {
+	if problems, _, _ := check(); !strings.Contains(strings.Join(problems, "\n"), "fingerprints/grade/grade.go:Letter matches neither") {
 		t.Fatalf("a forged fingerprint passed: %q", problems)
+	}
+}
+
+// TestPoisonedFingerprintFails changes the stored fingerprint of the capped Letter,
+// which still exists, to another hash, so a later change could move its cap onto
+// different code.
+func TestPoisonedFingerprintFails(t *testing.T) {
+	measured(t)
+	editBaseline(t, func(b *Baseline) { b.Fingerprints["grade/grade.go:Letter"] = "0123456789abcdef" })
+	if problems, _, _ := check(); !strings.Contains(strings.Join(problems, "\n"), "fingerprints/grade/grade.go:Letter matches neither") {
+		t.Fatalf("a poisoned fingerprint passed: %q", problems)
 	}
 }
