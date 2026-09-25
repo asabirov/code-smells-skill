@@ -1,5 +1,5 @@
-# The scanner's own checks. The smoke test runs bin/smells on a copy of the fixture
-# project, so it proves the launcher builds and runs the scanner end to end.
+# The scanner's own checks. The smoke test runs bin/smells with an empty cache on a copy
+# of the fixture project, so it proves the launcher builds and runs the scanner.
 export GOFLAGS := -mod=readonly
 
 check: test smoke
@@ -10,8 +10,8 @@ test:
 	cd scanner && go vet ./... && go test -count=1 -timeout 2m ./...
 
 smoke:
-	@dir=$$(mktemp -d) && trap 'rm -rf "$$dir"' EXIT && cp -R scanner/testdata/mixed/. "$$dir" && \
-	cd "$$dir" && git init -q && "$(CURDIR)/bin/smells" init && git add -A && \
+	@dir=$$(mktemp -d) && trap 'rm -rf "$$dir"' EXIT && cp -R scanner/testdata/mixed/. "$$dir/project" && \
+	export XDG_CACHE_HOME="$$dir/cache" && cd "$$dir/project" && git init -q && "$(CURDIR)/bin/smells" init && git add -A && \
 	git -c user.name=smoke -c user.email=smoke@example.com commit -qm fixture && \
 	git update-ref refs/remotes/origin/main HEAD && "$(CURDIR)/bin/smells" check
 

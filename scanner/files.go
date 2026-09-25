@@ -134,12 +134,13 @@ func gitFiles(pathspecs []string) ([]string, error) {
 }
 
 // detectFiles fills in the languages and include paths of a repository that has no
-// baseline yet: every language with a file somewhere, and every file of it.
+// baseline yet: every language with a file under the include paths, or anywhere when
+// there are none, and every file of those languages.
 func detectFiles(b *Baseline) error {
 	if len(b.Languages) > 0 && len(b.Files.Include) > 0 {
 		return nil
 	}
-	all, err := gitFiles(nil)
+	all, err := gitFiles(b.Files.Include)
 	if err != nil {
 		return err
 	}

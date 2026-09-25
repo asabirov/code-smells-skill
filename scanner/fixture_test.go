@@ -174,3 +174,35 @@ func TestReportWithoutBaseline(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestInitDetectsLanguagesUnderInclude(t *testing.T) {
+	fixture(t, "mixed")
+	write(t, baselinePath, `{"files": {"include": ["*.go"], "exclude": ["vendor/"]}}`)
+	if err := runInit(); err != nil {
+		t.Fatal(err)
+	}
+	b, err := loadBaseline(baselinePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(b.Languages, ",") != "go" {
+		t.Fatalf("languages %v, want only go", b.Languages)
+	}
+}
+
+func TestReviewUsesBaseLimits(t *testing.T) {
+	measured(t)
+	grade, err := os.ReadFile("grade/grade.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, "grade/grade.go", strings.Replace(string(grade), "\tif curved {\n", "\tif score < 0 {\n\t\tscore = 0\n\t}\n\tif curved {\n", 1))
+	editBaseline(t, func(b *Baseline) { b.Budgets[production][complexity] = 100 })
+	var out bytes.Buffer
+	if err := review(&out, "origin/main"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "grew: production complexity grade/grade.go:Letter") {
+		t.Fatalf("a raised limit hid growth:\n%s", out.String())
+	}
+}

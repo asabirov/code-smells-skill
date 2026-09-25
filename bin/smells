@@ -12,11 +12,15 @@ sha256() {
   if command -v sha256sum >/dev/null; then sha256sum; else shasum -a 256; fi
 }
 
-build=$(cd "$src" && for f in go.mod go.sum *.go typescript/ts-scan.ts typescript/package.json typescript/bun.lock; do
-  [[ $f == *_test.go ]] && continue
-  printf '%s %s\n' "$f" "$(wc -c <"$f")"
-  cat "$f"
-done | sha256 | cut -c1-16)
+source_hash() {
+  (cd "$src" && for f in go.mod go.sum *.go typescript/ts-scan.ts typescript/package.json typescript/bun.lock; do
+    [[ $f == *_test.go ]] && continue
+    printf '%s %s\n' "$f" "$(wc -c <"$f")"
+    cat "$f"
+  done) | sha256 | cut -c1-16
+}
+
+build=$(source_hash)
 cache=${XDG_CACHE_HOME:-$HOME/.cache}/code-smells/$build
 
 fail() {
@@ -35,12 +39,17 @@ put() {
     rm -rf "$tmp"
     fail "$name failed; see above"
   fi
+  if [[ $(source_hash) != "$build" ]]; then
+    rm -rf "$tmp"
+    fail "the skill's source changed during the build; run again"
+  fi
   # Another run may have finished the same build first; both copies are the same.
   if [[ -e $cache/$name ]]; then rm -rf "$tmp"; else mv "$tmp" "$cache/$name"; fi
 }
 
+# The build is for this machine, whatever GOOS or GOARCH the caller has set.
 build_scanner() {
-  GOFLAGS=-mod=readonly go -C "$src" build -trimpath -o "$PWD/smells" .
+  env -u GOOS -u GOARCH GOFLAGS=-mod=readonly go -C "$src" build -trimpath -o "$PWD/smells" .
 }
 
 install_typescript() {

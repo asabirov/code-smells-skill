@@ -34,14 +34,14 @@ const (
 // as the metric definitions: changing how anything is measured, even by accident, fails
 // the check until the baseline is changed on purpose.
 //
-//go:embed scan.go golang.go typescript.go typescript/ts-scan.ts
+//go:embed scan.go files.go golang.go typescript.go typescript/ts-scan.ts
 var measuringCode embed.FS
 
 var definitions = hashMeasuringCode()
 
 func hashMeasuringCode() string {
 	h := sha256.New()
-	for _, name := range []string{"scan.go", "golang.go", "typescript.go", tsScript} {
+	for _, name := range []string{"scan.go", "files.go", "golang.go", "typescript.go", tsScript} {
 		src, _ := measuringCode.ReadFile(name)
 		fmt.Fprintf(h, "%s %d\n", name, len(src))
 		h.Write(src)

@@ -109,13 +109,16 @@ func change(key string, old, b *Baseline) string {
 	return fmt.Sprintf(" (%s -> %s)", show(old), show(b))
 }
 
-// reviewHotspots lists items over a limit that base's baseline did not cap, and items
-// that grew past base's cap.
+// reviewHotspots lists items over base's limit that base's baseline did not cap, and
+// items that grew past base's cap, so a branch that raises a limit hides nothing.
 func reviewHotspots(w io.Writer, base string, old, b *Baseline, s *Scan) {
 	var found []string
 	for _, scope := range sortedKeys(b.Budgets) {
 		for _, metric := range sortedKeys(b.Budgets[scope]) {
-			limit := b.Budgets[scope][metric]
+			limit, ok := old.Budgets[scope][metric]
+			if !ok {
+				limit = b.Budgets[scope][metric]
+			}
 			for _, id := range sortedKeys(s.Values[scope][metric]) {
 				v := s.Values[scope][metric][id]
 				was, capped := old.Caps[scope][metric][id]
