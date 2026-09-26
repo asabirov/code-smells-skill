@@ -1,0 +1,7 @@
+{
+  "name": "code-smells-typescript",
+  "private": true,
+  "dependencies": {
+    "typescript": "5.9.3"
+  }
+}

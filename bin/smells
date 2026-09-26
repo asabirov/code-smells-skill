@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Runs the code-smells scanner in the current repository. The first run builds it into
+# ~/.cache/code-smells/<build>/, where <build> is a hash of the scanner's source, and
+# installs the TypeScript compiler that bun.lock pins next to it. That first run needs
+# Go, Bun and the network; later runs reuse the build and work offline.
+set -euo pipefail
+
+skill=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+src=$skill/scanner
+
+sha256() {
+  if command -v sha256sum >/dev/null; then sha256sum; else shasum -a 256; fi
+}
+
+source_hash() {
+  (cd "$src" && for f in go.mod go.sum *.go typescript/ts-scan.ts typescript/package.json typescript/bun.lock; do
+    [[ $f == *_test.go ]] && continue
+    printf '%s %s\n' "$f" "$(wc -c <"$f")"
+    cat "$f"
+  done) | sha256 | cut -c1-16
+}
+
+build=$(source_hash)
+cache=${XDG_CACHE_HOME:-$HOME/.cache}/code-smells/$build
+
+fail() {
+  echo "code-smells: could not build the scanner into $cache: $1" >&2
+  exit 1
+}
+
+# put NAME COMMAND... runs COMMAND in a new folder, then moves the folder to
+# $cache/NAME, so an interrupted build leaves nothing half-finished behind.
+put() {
+  local name=$1 tmp
+  shift
+  mkdir -p "$cache"
+  tmp=$(mktemp -d "$cache/$name.tmp.XXXXXX")
+  if ! (cd "$tmp" && "$@"); then
+    rm -rf "$tmp"
+    fail "$name failed; the error is above"
+  fi
+  if [[ $(source_hash) != "$build" ]]; then
+    rm -rf "$tmp"
+    fail "the skill's source changed during the build; run bin/smells again"
+  fi
+  # Another run may have finished the same build first; both copies are identical.
+  if [[ -e $cache/$name ]]; then rm -rf "$tmp"; else mv "$tmp" "$cache/$name"; fi
+}
+
+# The build is for this machine, whatever GOOS or GOARCH the caller has set.
+build_scanner() {
+  env -u GOOS -u GOARCH GOFLAGS=-mod=readonly go -C "$src" build -trimpath -o "$PWD/smells" .
+}
+
+install_typescript() {
+  cp "$src"/typescript/{ts-scan.ts,package.json,bun.lock} . && bun install --frozen-lockfile --silent
+}
+
+if [[ ! -x $cache/bin/smells ]]; then
+  command -v go >/dev/null || fail "Go is not on PATH, and the first run needs it to build the scanner"
+  echo "code-smells: first run of build $build, so building the scanner into $cache" >&2
+  put bin build_scanner
+fi
+if [[ ! -d $cache/typescript ]] && command -v bun >/dev/null; then
+  echo "code-smells: installing the pinned TypeScript compiler into $cache" >&2
+  put typescript install_typescript
+fi
+
+commit=$(git -C "$skill" rev-parse --short=12 HEAD 2>/dev/null || true)
+CODE_SMELLS_VERSION="${commit:+$commit, }build $build" exec "$cache/bin/smells" "$@"
