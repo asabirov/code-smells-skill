@@ -6,7 +6,7 @@ Code that is already over a limit may become smaller, but it may not grow. New c
 
 ## Install and use
 
-Install this folder as the `code-smells` skill. `machine-environment` installs it from `asabirov/claude-2`. You can also clone it anywhere.
+Install this folder as the `code-smells` skill. `machine-environment` installs it from `asabirov/agents-home`. You can also clone it anywhere.
 
 From inside a repository, run the scanner as follows:
 
