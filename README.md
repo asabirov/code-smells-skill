@@ -58,3 +58,6 @@ Each measurement is an item with a whole-number value. It belongs to either the 
 - `cycles` (production only): each import cycle is one item, named after its members.
 
 Run `make check` in this repository to test the skill itself.
+The provisional whole-suite budget is 90 seconds. See [AGENTS.md](AGENTS.md) for the measured host and the pending idle-Mac check.
+The command reports up to ten slowest tests and files without changing the test result.
+File times sum top-level test durations, including their subtests once, and exclude build time and smoke-test time.

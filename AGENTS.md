@@ -6,6 +6,13 @@
 make check
 ```
 
+The whole-suite budget is 90 seconds, including the smoke test and its fresh build.
+The Linux VM runs took 57.95 seconds before this change and 50.38 seconds after it on 2026-10-14.
+Other test runs were active on the host.
+This provisional budget allows about 50% headroom. The coordinator must confirm it on an otherwise idle Mac.
+Each full run lists up to ten slowest tests and files. This report never changes the test result.
+File times sum top-level test durations, including their subtests once. They exclude build time and smoke-test time.
+
 This runs the scanner's tests (`make test`, which needs Go and Bun) and a smoke
 test of `bin/smells` on a copy of the fixture project (`make smoke`).
 
