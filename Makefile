@@ -7,7 +7,21 @@ check: test smoke
 test:
 	test -z "$$(gofmt -l scanner/*.go)" || { gofmt -l scanner/*.go; exit 1; }
 	cd scanner/typescript && bun install --frozen-lockfile --silent
-	cd scanner && go vet ./... && go test -count=1 -timeout 2m ./...
+	cd scanner && go vet ./...
+	@log=$$(mktemp) && trap 'rm -f "$$log"' EXIT; \
+	status=0; (cd scanner && go test -v -count=1 -timeout 2m ./...) >"$$log" 2>&1 || status=$$?; \
+	cat "$$log"; \
+	awk '/^func Test/ { name=$$2; sub(/\(.*/, "", name); file[name]=FILENAME } \
+		$$1 == "---" && $$2 ~ /^(PASS|FAIL|SKIP):$$/ { \
+			seconds=$$4; gsub(/[()s]/, "", seconds); \
+			print "Tests", seconds, $$3; \
+			if ($$3 !~ /\// && $$3 in file) total[file[$$3]]+=seconds; \
+		} \
+		END { for (path in total) print "Files", total[path], path }' scanner/*_test.go "$$log" | \
+	LC_ALL=C sort -k1,1 -k2,2nr -k3,3 | \
+	awk '$$1 != section { section=$$1; print "Slowest 10 " tolower(section) " (seconds):" } \
+		++count[$$1] <= 10 { printf "  %.2f %s\n", $$2, $$3 }' || echo 'Timing report unavailable'; \
+	exit $$status
 
 smoke:
 	@dir=$$(mktemp -d) && trap 'rm -rf "$$dir"' EXIT && cp -R scanner/testdata/mixed/. "$$dir/project" && \
