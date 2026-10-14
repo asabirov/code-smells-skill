@@ -57,4 +57,4 @@ Each measurement is an item with a whole-number value. It belongs to either the 
 - `duplicate_groups`: each group of repeated stretches is one item. Its name identifies the files it spans and includes a hash of the repeated code. Its value is the number of copies. A group belongs to `production` if any copy belongs to `production`.
 - `cycles` (production only): each import cycle is one item, named after its members.
 
-Run `make check` in this repository to test the skill itself.
+Run `make check` in this repository to test the skill itself. See [AGENTS.md](AGENTS.md) for the whole-suite budget and the slowest-tests report.
