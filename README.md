@@ -57,7 +57,4 @@ Each measurement is an item with a whole-number value. It belongs to either the 
 - `duplicate_groups`: each group of repeated stretches is one item. Its name identifies the files it spans and includes a hash of the repeated code. Its value is the number of copies. A group belongs to `production` if any copy belongs to `production`.
 - `cycles` (production only): each import cycle is one item, named after its members.
 
-Run `make check` in this repository to test the skill itself.
-The provisional whole-suite budget is 90 seconds. See [AGENTS.md](AGENTS.md) for the measured host and the pending idle-Mac check.
-The command reports up to ten slowest tests and files without changing the test result.
-File times sum top-level test durations, including their subtests once, and exclude build time and smoke-test time.
+Run `make check` in this repository to test the skill itself. See [AGENTS.md](AGENTS.md) for the whole-suite budget and the slowest-tests report.

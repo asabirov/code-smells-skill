@@ -6,10 +6,7 @@
 make check
 ```
 
-The whole-suite budget is 90 seconds, including the smoke test and its fresh build.
-The Linux VM runs took 57.95 seconds before this change and 50.38 seconds after it on 2026-10-14.
-Other test runs were active on the host.
-This provisional budget allows about 50% headroom. The coordinator must confirm it on an otherwise idle Mac.
+The whole-suite budget is 90 seconds, including the smoke test and its fresh build, confirmed on an otherwise idle Mac at 26.34 seconds on 2026-10-14 (asabirov/code-smells-skill#5).
 Each full run lists up to ten slowest tests and files. This report never changes the test result.
 File times sum top-level test durations, including their subtests once. They exclude build time and smoke-test time.
 
