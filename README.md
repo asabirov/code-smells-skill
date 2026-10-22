@@ -10,11 +10,12 @@ Code that is already over a limit may shrink but may not grow. New code stays wi
 
 The check turns "this function got worse" into a failed command that an agent can read and fix. This example is a real run on the scanner's own Go code, in a scratch copy with a baseline written by `bin/smells baseline`. The change added two `if` statements to one function.
 
-Before the fix, `bin/smells check` exits 1:
+Before the fix, `bin/smells check` exits 1 and prints three lines:
 
 ```text
 smell: production complexity: baseline.go:guard is 19, over the limit of 15
 smell: production complexity: 1 over the limit by 4 in total; the baseline allows 0 over by 0
+smells (code-smells bca927573fa9, build bb70b8a8433bd6d5): the smell check failed with 2 problem(s); the limits are in .smells.json
 ```
 
 The fix moved the two checks into a new function, `sizeNotes`. `guard` returned to complexity 15, and `bin/smells check` exits 0:
