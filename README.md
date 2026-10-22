@@ -47,7 +47,7 @@ A passing check costs 29 tokens. A failing one costs 76 tokens and names the fun
 DO_NOT_TRACK=1 npx skills add asabirov/code-smells-skill
 ```
 
-`DO_NOT_TRACK=1` turns off the telemetry of the [skills CLI](https://github.com/vercel-labs/skills). The command needs Node.js, npm and Git. To update, run the command again. The version is `metadata.version` in the `SKILL.md` frontmatter.
+`DO_NOT_TRACK=1` turns off the telemetry of the [skills CLI](https://github.com/vercel-labs/skills). The command needs Node.js 22.20 or newer, npm and Git. To update, run the command again. The version is `metadata.version` in the `SKILL.md` frontmatter.
 
 Then ask your agent, for example: "Add a smell baseline to this repository and run the check."
 
@@ -55,7 +55,7 @@ Then ask your agent, for example: "Add a smell baseline to this repository and r
 
 | Dependency | Needed for |
 | --- | --- |
-| Node.js, npm and Git | Installing the skill; Git also lets the check compare with the default branch |
+| Node.js 22.20 or newer, npm and Git | Installing the skill; Git also lets the check compare with the default branch |
 | Go 1.26 or newer | Building the scanner on the first run; an older Go downloads the 1.26.5 toolchain |
 | Bun | Measuring TypeScript, and running this repository's tests |
 | Network access, once | Fetching the Go modules and the TypeScript compiler on the first build |
