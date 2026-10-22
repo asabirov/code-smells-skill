@@ -79,7 +79,7 @@ The check compares a branch's `.smells.json` with the one on the default branch,
 `SKILL.md` lists every command and rule. A project can run the check from its Makefile:
 
 ```make
-SMELLS_SKILL ?= $(firstword $(wildcard $(HOME)/.agents/skills/code-smells $(HOME)/.claude/skills/code-smells))
+SMELLS_SKILL ?= $(firstword $(wildcard $(CURDIR)/.agents/skills/code-smells $(CURDIR)/.claude/skills/code-smells $(HOME)/.agents/skills/code-smells $(HOME)/.claude/skills/code-smells))
 smell-check smell-report smell-baseline:
 	@test -x "$(SMELLS_SKILL)/bin/smells" || { echo "The code-smells skill is not installed, so the smell check cannot run. Install it with npx skills add asabirov/code-smells-skill, or set SMELLS_SKILL to its folder." >&2; exit 1; }
 	"$(SMELLS_SKILL)/bin/smells" $(subst smell-,,$@)
