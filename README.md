@@ -47,7 +47,7 @@ A passing check costs 29 tokens. A failing one costs 76 tokens and names the fun
 DO_NOT_TRACK=1 npx skills add asabirov/code-smells-skill
 ```
 
-`DO_NOT_TRACK=1` turns off the telemetry of the [skills CLI](https://github.com/vercel-labs/skills). The command needs Node.js, npm and Git. To update or roll back, run the command again.
+`DO_NOT_TRACK=1` turns off the telemetry of the [skills CLI](https://github.com/vercel-labs/skills). The command needs Node.js, npm and Git. To update, run the command again. The version is `metadata.version` in the `SKILL.md` frontmatter.
 
 Then ask your agent, for example: "Add a smell baseline to this repository and run the check."
 
