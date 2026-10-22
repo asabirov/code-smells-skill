@@ -18,3 +18,4 @@ This skill checks that the code size, complexity, duplication and imports of a G
 - **Code lines only.** The function length counts lines that hold code, so adding comments to a capped function does not fail the check.
 - **Safe TypeScript start.** Bun starts in the skill's folder, so a project's `bunfig.toml` or `.env` cannot run code in the scanner.
 - **First-run build.** The first run builds the scanner in `~/.cache/code-smells/`, using gocognit v1.2.0, dupl v1.0.0 and the TypeScript compiler 5.9.3. Later runs work offline.
+- **MIT licence.** You may use, copy and change the skill under the MIT licence in `LICENSE`.
