@@ -87,14 +87,7 @@ smell-check smell-report smell-baseline:
 
 ### When a new skill version measures differently
 
-`.smells.json` records the measuring tools in `tools`, including a hash of the measuring code. When a new version measures differently, `check` fails until the repository re-measures:
-
-```sh
-bin/smells baseline                        # prints each cap that changed, old and new
-mv .smells.candidate.json .smells.json     # then commit it on its own branch
-```
-
-The check accepts a re-measure only when every measured file and `go.mod` match the default branch and the caps are exactly what `baseline` measures, so growth cannot hide in it. `review` shows the old and new numbers. The Go version is recorded but not compared, because gocognit and dupl are pinned.
+`check` fails until the repository re-measures. `SKILL.md` holds the steps and the rule.
 
 ### Known limits
 
