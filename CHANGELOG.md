@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1 — 2026-10-23
+
+- SKILL.md states the skill version in `metadata.version`, so the private-repo pin sync can install the release.
+
 ## 0.1.0 — 2026-10-23
 
 - The TypeScript scanner reads `.tsx` files with the same measures as `.ts` files, so a glob such as `ui/**/*.tsx` in `files.include` selects them. JSX counts like other code: element lines are code lines, and `&&` and `?:` inside JSX add to complexity. An import of a `.tsx` file or of a folder with `index.tsx` counts toward `fan_out`. This changes the `definitions` hash, so every existing baseline must be re-measured with `baseline`. Measured values of `.go` files do not change. A `.ts` file that imports `./component` or `./pkg` can now resolve `component.tsx` or `pkg/index.tsx`, so its `fan_out` can increase. Re-measure every baseline with `baseline` and review the changes.
