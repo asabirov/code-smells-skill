@@ -1,7 +1,7 @@
 {
   "languages": ["go", "typescript"],
   "files": {
-    "include": ["*.go", "web/*.ts"],
+    "include": ["*.go", "web/*.ts", "ui/**/*.tsx"],
     "exclude": ["vendor/"],
     "tests": ["_test\\.go$", "\\.test\\.ts$"]
   }
