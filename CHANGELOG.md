@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.0 — 2026-10-23
 
 - The TypeScript scanner reads `.tsx` files with the same measures as `.ts` files, so a glob such as `ui/**/*.tsx` in `files.include` selects them. JSX counts like other code: element lines are code lines, and `&&` and `?:` inside JSX add to complexity. An import of a `.tsx` file or of a folder with `index.tsx` counts toward `fan_out`. This changes the `definitions` hash, so every existing baseline must be re-measured with `baseline`. Measured values of `.go` files do not change. A `.ts` file that imports `./component` or `./pkg` can now resolve `component.tsx` or `pkg/index.tsx`, so its `fan_out` can increase. Re-measure every baseline with `baseline` and review the changes.
 - The scanner and ratchet from asabirov/amberstone#333 now belong to this skill and use the same Amberstone values: gocognit v1.2.0 and dupl v1.0.0 are compiled in, while TypeScript uses its pinned compiler, 5.9.3.
