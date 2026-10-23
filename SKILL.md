@@ -1,6 +1,8 @@
 ---
 name: code-smells
 description: Measure code size, complexity, duplication and imports in a Go or TypeScript repository against its committed .smells.json. Use when running or fixing a smell check, lowering a baseline after a refactor, reviewing a pull request's smells, or surveying an unfamiliar repository. Not for style linting, formatting or finding bugs.
+metadata:
+  version: "0.1.1"
 ---
 
 # Code smells
