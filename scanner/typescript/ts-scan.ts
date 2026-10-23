@@ -71,7 +71,7 @@ function complexity(fn: ts.Node): number {
 function resolveImport(file: string, spec: string): string | undefined {
   if (!spec.startsWith(".")) return undefined;
   const base = join(dirname(file), spec);
-  return [base, `${base}.ts`, `${base}/index.ts`].find((c) => known.has(c));
+  return [base, `${base}.ts`, `${base}.tsx`, `${base}/index.ts`, `${base}/index.tsx`].find((c) => known.has(c));
 }
 
 function measure(file: string) {

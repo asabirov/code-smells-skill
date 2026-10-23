@@ -35,7 +35,7 @@ If the check says the baseline was measured with other tools, this machine's ski
 
 ## `.smells.json`
 
-A project records its `languages` (`go`, `typescript`) and `files`: `include` contains git pathspecs such as `*.go` or `ui/*.ts`, `exclude` contains path prefixes, and `tests` contains regular expressions. The first `baseline` run fills in the remaining fields:
+A project records its `languages` (`go`, `typescript`) and `files`: `include` contains git pathspecs such as `*.go`, `ui/*.ts` or `ui/**/*.tsx`, `exclude` contains path prefixes, and `tests` contains regular expressions. The first `baseline` run fills in the remaining fields:
 
 - `budgets` contain the limits.
 - `caps` contain existing hotspots.
