@@ -19,7 +19,7 @@ const (
 
 var extensions = map[string][]string{
 	golang:     {".go"},
-	typescript: {".ts"},
+	typescript: {".ts", ".tsx"},
 }
 
 // languageOf names the language of a file by its extension, or returns "".

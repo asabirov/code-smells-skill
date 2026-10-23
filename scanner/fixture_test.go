@@ -116,6 +116,9 @@ func TestFixtureFailures(t *testing.T) {
 		{"typescript syntax error", "web/broken.ts", func(t *testing.T) {
 			write(t, "web/broken.ts", "export function broken( {\n")
 		}},
+		{"a tsx file over a limit", "ui/pages/Big.tsx", func(t *testing.T) {
+			write(t, "ui/pages/Big.tsx", bigTSX)
+		}},
 		{"a language measures nothing", "found no TypeScript files", func(t *testing.T) {
 			editBaseline(t, func(b *Baseline) { b.Files.Include = []string{"*.go", "ui/*.ts"} })
 		}},
@@ -181,7 +184,7 @@ func TestReportWithoutBaseline(t *testing.T) {
 	if err != nil || measured {
 		t.Fatal(measured, err)
 	}
-	if strings.Join(b.Languages, ",") != "go,typescript" || strings.Join(b.Files.Include, ",") != "*.go,*.ts" {
+	if strings.Join(b.Languages, ",") != "go,typescript" || strings.Join(b.Files.Include, ",") != "*.go,*.ts,*.tsx" {
 		t.Fatalf("detected %v in %v", b.Languages, b.Files.Include)
 	}
 	if _, err := scan(b); err != nil {
@@ -446,3 +449,8 @@ func TestNewFunctionTakesFreedCap(t *testing.T) {
 		t.Fatalf("a new function larger than the freed cap passed: %q", problems)
 	}
 }
+
+// bigTSX is a component whose complexity (1 + 20 branches, 10 of them inside JSX) is over every limit.
+var bigTSX = "export function Big({ a }: { a: number[] }) {\n  return (\n    <div>\n" +
+	strings.Repeat("      {a[0] && <b>{a[1] ? 1 : 2}</b>}\n", 10) +
+	"    </div>\n  );\n}\n"

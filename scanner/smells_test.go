@@ -384,3 +384,24 @@ func TestTypeScriptDuplicatesAfterTemplates(t *testing.T) {
 		t.Fatalf("duplicate groups %v, want one", s.Values[production][duplicateGroups])
 	}
 }
+
+// TestTSXCountsLikeTypeScript measures JSX with the same rules as other code: element
+// lines are code lines, and && and ?: inside JSX add to complexity, so the component
+// below is 3 (1, one &&, one ?:) and 7 lines.
+func TestTSXCountsLikeTypeScript(t *testing.T) {
+	src := "export function C({ a }: { a: number }) {\n  return (\n    <div>\n      {a && <b>{a > 1 ? 1 : 2}</b>}\n    </div>\n  );\n}\n"
+	s, err := scanSources(t, t.TempDir(), map[string]string{"c.tsx": src})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for metric, want := range map[string]int{complexity: 3, functionLines: 7} {
+		for id, got := range s.Values[production][metric] {
+			if strings.HasSuffix(id, "c.tsx:C") && got != want {
+				t.Errorf("%s of %s is %d, want %d", metric, id, got, want)
+			}
+		}
+		if len(s.Values[production][metric]) != 1 {
+			t.Errorf("%s: %v, want only the component", metric, s.Values[production][metric])
+		}
+	}
+}
