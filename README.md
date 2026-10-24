@@ -50,7 +50,13 @@ DO_NOT_TRACK=1 npx skills add -g asabirov/code-smells-skill
 
 The `-g` flag installs the skill for your user, because the scanner measures a skill installed inside a project as part of that project. If you install it in a project instead, add the skill's folder to `files.exclude` in `.smells.json`, for example `".agents/skills/code-smells/"`.
 
-`DO_NOT_TRACK=1` turns off the telemetry of the [skills CLI](https://github.com/vercel-labs/skills). The command needs Node.js 22.20 or newer, npm and Git. To update, run the command again. The version is `metadata.version` in the `SKILL.md` frontmatter.
+`DO_NOT_TRACK=1` turns off the telemetry of the [skills CLI](https://github.com/vercel-labs/skills). The command needs Node.js 22.20 or newer, npm and Git. To update, run the command again. The version is `metadata.version` in the `SKILL.md` frontmatter. To install or roll back to a released version, use its tag URL, for example `npx skills add -g https://github.com/asabirov/code-smells-skill/tree/<tag>`.
+
+To remove the skill:
+
+```sh
+DO_NOT_TRACK=1 npx skills remove -g code-smells
+```
 
 Then ask your agent, for example: "Add a smell baseline to this repository and run the check."
 
@@ -87,6 +93,8 @@ smell-check smell-report smell-baseline:
 	@test -x "$(SMELLS_SKILL)/bin/smells" || { echo "The code-smells skill is not installed, so the smell check cannot run. Install it with npx skills add -g asabirov/code-smells-skill, or set SMELLS_SKILL to its folder." >&2; exit 1; }
 	"$(SMELLS_SKILL)/bin/smells" $(subst smell-,,$@)
 ```
+
+A `SMELLS_SKILL` value already set in the environment, for example by a provisioning script, wins over this lookup.
 
 ### When a new skill version measures differently
 
