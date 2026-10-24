@@ -1,13 +1,27 @@
 # Changelog
 
+## 0.2.0 — Unreleased
+
+### Added
+
+- **MIT licence.** You may use, copy and change the skill under the MIT licence.
+- **Install and proof.** The README gives a global install command, a tested example and measured token estimates.
+
+### Changed
+
+- **General description.** The skill description applies to Go and TypeScript repositories with or without a baseline.
+- **Private names.** The skill files and test example use public terms instead of private project and host names.
+
 ## 0.1.1 — 2026-10-23
 
-- SKILL.md states the skill version in `metadata.version`, so the agents-home pin sync can install the release.
+- SKILL.md states the skill version in `metadata.version` for release installs.
 
 ## 0.1.0 — 2026-10-23
 
+This skill checks code size, complexity, duplication and imports against limits set by Go and TypeScript projects. Developers and coding agents use it.
+
 - The TypeScript scanner reads `.tsx` files with the same measures as `.ts` files, so a glob such as `ui/**/*.tsx` in `files.include` selects them. JSX counts like other code: element lines are code lines, and `&&` and `?:` inside JSX add to complexity. An import of a `.tsx` file or of a folder with `index.tsx` counts toward `fan_out`. This changes the `definitions` hash, so every existing baseline must be re-measured with `baseline`. Measured values of `.go` files do not change. A `.ts` file that imports `./component` or `./pkg` can now resolve `component.tsx` or `pkg/index.tsx`, so its `fan_out` can increase. Re-measure every baseline with `baseline` and review the changes.
-- The scanner and ratchet from asabirov/amberstone#333 now belong to this skill and use the same Amberstone values: gocognit v1.2.0 and dupl v1.0.0 are compiled in, while TypeScript uses its pinned compiler, 5.9.3.
+- The scanner and ratchet are part of this skill and use pinned measuring tools: gocognit v1.2.0 and dupl v1.0.0 are compiled in, while TypeScript uses its pinned compiler, 5.9.3.
 - On first use, `bin/smells` builds the scanner in `~/.cache/code-smells/`. Later runs work offline.
 - `.smells.json` defines the files to measure (`files.include`) and the project's `languages`. The check fails if a listed language produces no measurements.
 - The check fails, and reports both hashes, when the baseline was measured with different measuring code.
@@ -18,17 +32,3 @@
 - The check and `review` compare with the repository's default branch (`origin/HEAD`) instead of `origin/main`, and say so when it is unknown.
 - Bun starts in the skill's folder, not the project, so a project's `bunfig.toml` or `.env` cannot run code inside the scanner.
 - `baseline` writes the repository's first baseline as a candidate for moving into place. `.smells.json` no longer contains `schema` or `metrics`; the README defines the metrics, and the check compares the complete `tools` block, including the `definitions` hash.
-
-### Planned for a later release
-
-From the CTO and security reviews of PR #2:
-
-- Exceptions never expire. `check` should note an exception whose key is no longer looser than the default branch, and `baseline` should drop it.
-- A broken cached scanner does not rebuild itself, and its error does not say to delete the cache folder.
-- The README does not say that the cache is never pruned (about 29 MB per skill version), or that `go.mod` asks for Go 1.26.5, which an older Go downloads on first run.
-- `baseline` follows a symlinked `.smells.candidate.json` and overwrites its target. It should refuse symlinks.
-- Symlinked source files are read, so a link to a file outside the project, or to `/dev/zero`, is measured or hangs the scan. Skip anything that is not a regular file.
-- The launcher trusts whatever is in the cache folder. It should create it with mode 700 and refuse one that other users can write to.
-- The scanner build inherits the caller's Go environment, such as `GOWORK` and `GOINSECURE`. Build with `GOWORK=off` and `CGO_ENABLED=0`.
-- `review` shows a cap that moved to a new item as "tighter: ... (18 -> none)". It should say which item took it.
-- `inherit` and `uncapped` could be one function for `check`, `baseline` and `review`; `looserMetric` offers only the freed caps while leaving out every old cap, so it needs care.

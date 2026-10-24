@@ -1,49 +1,118 @@
 # code-smells
 
-This skill keeps each repository’s code size, complexity, duplication, and imports within committed limits. It measures Go code and TypeScript code (`.ts` and `.tsx` files, but not `.d.ts` files). The design choice is to keep one shared scanner in the skill and store only each project’s `.smells.json` plus a Makefile target, so every repository measures the same way and none has to install the tools. The alternative, copying the scanner into every repository, was turned down because the copies would drift apart.
+An agent skill that keeps a Go or TypeScript repository's code size, complexity, duplication and imports from growing past limits the repository records. It measures `.ts` and `.tsx` files, but not `.d.ts` files.
 
-Code that is already over a limit may become smaller, but it may not grow. New code must stay within the configured limits. If a capped item is removed or drops to or below its limit, a new item may take its cap when it is no larger. The match uses size only, so a function may move, be renamed, shrink, or move to another package in the same change. A split may also use the caps of several removed or fixed items. An unrelated new function may take a freed cap too, but the count and total excess for each limit must still not grow, and `review` names every item that takes a cap. Matching by a content hash was rejected because moving and editing code broke the match and required an exception.
+The design choice is one shared scanner in the skill. Each project keeps only a `.smells.json` file and a Makefile target, so every repository measures the same way and none installs the tools. The alternative, copying the scanner into every repository, was turned down because the copies drift apart.
 
-## Install and use
+Code that is already over a limit may shrink but may not grow. New code stays within the limits. If a capped item is removed or drops to its limit, a new item may take its cap when it is no larger. The match uses size only, so a function may move, be renamed, shrink, or change package in one change. Matching by a content hash was turned down because moving and editing code broke the match and forced an exception.
 
-Install this folder as the `code-smells` skill. `machine-environment` installs it from `asabirov/agents-home`. You can also clone it anywhere.
+## What it changes
 
-From inside a repository, run the scanner as follows:
+The check turns "this function got worse" into a failed command that an agent can read and fix. This example is a real run on the scanner's own Go code, in a scratch copy with a baseline written by `bin/smells baseline`. The change added two `if` statements to one function.
 
-```bash
-path/to/code-smells/bin/smells baseline               # once: writes .smells.candidate.json
-mv .smells.candidate.json .smells.json                # after reading it; then commit it
-path/to/code-smells/bin/smells check                  # fails if anything grew
+Before the fix, `bin/smells check` exits 1 and prints three lines:
+
+```text
+smell: production complexity: baseline.go:guard is 19, over the limit of 15
+smell: production complexity: 1 over the limit by 4 in total; the baseline allows 0 over by 0
+smells (code-smells bca927573fa9, build bb70b8a8433bd6d5): the smell check failed with 2 problem(s); the limits are in .smells.json
 ```
 
-The first run builds the scanner in `~/.cache/code-smells/<build>/`. Here, `<build>` is a hash of the scanner’s source. The first run requires Go 1.26 and Bun. It also needs network access if the required Go modules or TypeScript package are not already cached. Later runs work offline. Bun measures TypeScript on every run. It starts in the skill’s own folder, so a project’s `bunfig.toml` or `.env` is never loaded and cannot run code during a review.
+The fix moved the two checks into a new function, `sizeNotes`. `guard` returned to complexity 15, and `bin/smells check` exits 0:
 
-The check compares a branch’s `.smells.json` with the one on the repository’s default branch, which git records as `origin/HEAD`. If `origin/HEAD` is not set, the check fails and says to run `git remote set-head origin --auto`.
-
-## When a new skill version measures differently
-
-`.smells.json` records the measuring tools in `tools`, including a hash of the measuring code. When a new version of this skill measures differently, `check` fails in every repository until that repository re-measures its baseline:
-
-```bash
-path/to/code-smells/bin/smells baseline               # writes a re-measured .smells.candidate.json
-mv .smells.candidate.json .smells.json                # then commit it on its own branch
+```text
+smell check passed (code-smells c563d3084f27, build bb70b8a8433bd6d5): nothing grew past its limit in .smells.json
 ```
 
-`baseline` prints each cap that changed with its old and new value, and the candidate records the skill build and Go version in `measured_by`. The check accepts a baseline measured with other tools than the default branch’s only when every measured file and `go.mod` match the default branch and the caps are exactly what `baseline` measures, so growth cannot hide in a re-measure. `review` shows the old and new numbers. The Go version is recorded but not compared: gocognit and dupl are pinned, and a new Go rarely parses existing code differently.
+The skill author uses it in one private repository, where the check runs before every merge. In 30 days, 56 commits changed that repository's baseline, on 16 different days.
 
-For the complete command list and the rules enforced by `check`, see [SKILL.md](SKILL.md).
+## How few tokens it uses
 
-A project’s Makefile locates the installed skill like this:
+An agent loads the name and description when a session starts. It loads `SKILL.md` only when a task needs it. The command outputs below are from the run above. The count is characters divided by 4, rounded up, because no tokenizer was available. Real counts differ somewhat.
+
+| Item | Characters | Tokens (about) |
+| --- | ---: | ---: |
+| Name and description, always loaded | 434 | 109 |
+| `SKILL.md`, loaded when used | 5,710 | 1,428 |
+| `bin/smells check`, passing | 115 | 29 |
+| `bin/smells check`, failing with two problems | 302 | 76 |
+| `bin/smells report`, ten worst functions | 1,077 | 270 |
+| `bin/smells review`, passing | 747 | 187 |
+| `bin/smells review`, failing | 993 | 249 |
+
+A passing check costs 29 tokens. A failing one costs 76 tokens and names the function to fix.
+
+## Install
+
+```sh
+DO_NOT_TRACK=1 npx skills add -g asabirov/code-smells-skill
+```
+
+The `-g` flag installs the skill for your user, because the scanner measures a skill installed inside a project as part of that project. If you install it in a project instead, add the skill's folder to `files.exclude` in `.smells.json`, for example `".agents/skills/code-smells/"`.
+
+`DO_NOT_TRACK=1` turns off the telemetry of the [skills CLI](https://github.com/vercel-labs/skills). The command needs Node.js 22.20 or newer, npm and Git. To update, run the command again. The version is `metadata.version` in the `SKILL.md` frontmatter. To install or roll back to a released version, use its tag URL, for example `npx skills add -g https://github.com/asabirov/code-smells-skill/tree/<tag>`.
+
+To remove the skill:
+
+```sh
+DO_NOT_TRACK=1 npx skills remove -g code-smells
+```
+
+Then ask your agent, for example: "Add a smell baseline to this repository and run the check."
+
+### Dependencies
+
+| Dependency | Needed for |
+| --- | --- |
+| Node.js 22.20 or newer, npm and Git | Installing the skill; Git also lets the check compare with the default branch |
+| Go 1.26 or newer | Building the scanner on the first run; an older Go downloads the 1.26.5 toolchain |
+| Bun | Measuring TypeScript, and running this repository's tests |
+| Network access, once | Fetching the Go modules and the TypeScript compiler on the first build |
+
+The scanner compiles in these Go modules: gocognit v1.2.0 for Go complexity, dupl v1.0.0 for Go duplication, and golang.org/x/tools v0.23.0. It uses the TypeScript compiler 5.9.3 for TypeScript.
+
+## Use
+
+From inside a repository, run `bin/smells` from the installed skill folder:
+
+```sh
+bin/smells baseline                        # once: writes .smells.candidate.json
+mv .smells.candidate.json .smells.json     # after reading it; then commit it
+bin/smells check                           # fails if anything grew
+```
+
+The first run builds the scanner in `~/.cache/code-smells/<build>/`, where `<build>` is a hash of the scanner's source. Later runs work offline. Bun starts in the skill's folder, so a project's `bunfig.toml` or `.env` never loads and cannot run code during a review.
+
+The check compares a branch's `.smells.json` with the one on the default branch, which git records as `origin/HEAD`. If `origin/HEAD` is not set, the check fails and says to run `git remote set-head origin --auto`.
+
+`SKILL.md` lists every command and rule. A project can run the check from its Makefile:
 
 ```make
-# The code-smells skill (asabirov/code-smells-skill) checks .smells.json.
-SMELLS_SKILL ?= $(firstword $(wildcard \
-  $(HOME)/.local/share/machine-environment/current/source/skills/code-smells \
-  $(HOME)/.agents/skills/code-smells $(HOME)/.claude/skills/code-smells))
+SMELLS_SKILL ?= $(firstword $(wildcard $(CURDIR)/.agents/skills/code-smells $(CURDIR)/.claude/skills/code-smells $(HOME)/.agents/skills/code-smells $(HOME)/.claude/skills/code-smells))
 smell-check smell-report smell-baseline:
-	@test -x "$(SMELLS_SKILL)/bin/smells" || { echo "The code-smells skill is not installed on this machine, so the smell check cannot run. Install it with machine-environment apply, or set SMELLS_SKILL to a checkout of asabirov/code-smells-skill." >&2; exit 1; }
+	@test -x "$(SMELLS_SKILL)/bin/smells" || { echo "The code-smells skill is not installed, so the smell check cannot run. Install it with npx skills add -g asabirov/code-smells-skill, or set SMELLS_SKILL to its folder." >&2; exit 1; }
 	"$(SMELLS_SKILL)/bin/smells" $(subst smell-,,$@)
 ```
+
+A `SMELLS_SKILL` value already set in the environment, for example by a provisioning script, wins over this lookup.
+
+### When a new skill version measures differently
+
+`check` fails until the repository re-measures. `SKILL.md` holds the steps and the rule.
+
+### Known limits
+
+- The build cache is never pruned. Each skill version adds about 29 MB.
+- The scanner reads symlinked source files, and `baseline` writes through a symlinked `.smells.candidate.json`. Run it only on repositories you trust.
+- A broken cached build does not rebuild itself. Delete `~/.cache/code-smells/` to force it.
+
+## Test it
+
+```sh
+make check
+```
+
+This runs the scanner's tests and a smoke test of `bin/smells` on a copy of a fixture project. It needs Go and Bun. See [AGENTS.md](AGENTS.md) for the time budget. There is no CI workflow.
 
 ## What is measured
 
@@ -57,4 +126,6 @@ Each measurement is an item with a whole-number value. It belongs to either the 
 - `duplicate_groups`: each group of repeated stretches is one item. Its name identifies the files it spans and includes a hash of the repeated code. Its value is the number of copies. A group belongs to `production` if any copy belongs to `production`.
 - `cycles` (production only): each import cycle is one item, named after its members.
 
-Run `make check` in this repository to test the skill itself. See [AGENTS.md](AGENTS.md) for the whole-suite budget and the slowest-tests report.
+## License
+
+MIT. See [LICENSE](LICENSE).
