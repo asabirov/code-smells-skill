@@ -12,6 +12,10 @@
 - **General description.** The skill description applies to Go and TypeScript repositories with or without a baseline.
 - **Private names.** The skill files and test example use public terms instead of private project and host names.
 
+### Fixed
+
+- **Same build on every host.** macOS and Linux now compute the same build id for the same scanner source. On macOS the id changes once, so the first run builds the scanner again. Baselines do not need a re-measure.
+
 ## 0.1.1 — 2026-10-23
 
 - SKILL.md states the skill version in `metadata.version` for release installs.

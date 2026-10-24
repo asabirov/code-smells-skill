@@ -12,10 +12,12 @@ sha256() {
   if command -v sha256sum >/dev/null; then sha256sum; else shasum -a 256; fi
 }
 
+# The hash is the same on every host: the C locale fixes the file order, and $((...))
+# drops the padding that BSD wc puts before the size.
 source_hash() {
-  (cd "$src" && for f in go.mod go.sum *.go typescript/ts-scan.ts typescript/package.json typescript/bun.lock; do
+  (cd "$src" && LC_ALL=C && for f in go.mod go.sum *.go typescript/ts-scan.ts typescript/package.json typescript/bun.lock; do
     [[ $f == *_test.go ]] && continue
-    printf '%s %s\n' "$f" "$(wc -c <"$f")"
+    printf '%s %s\n' "$f" "$(($(wc -c <"$f")))"
     cat "$f"
   done) | sha256 | cut -c1-16
 }
