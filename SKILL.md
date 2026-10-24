@@ -2,7 +2,7 @@
 name: code-smells
 description: Keep a Go or TypeScript repository's code size, complexity, duplication and imports from growing past limits recorded in the repository. Use when asked to run or fix a smell check, set smell limits in a repository that has none, lower limits after a refactor, review a pull request for code growth, or survey an unfamiliar Go or TypeScript repository. Not for style linting, formatting or finding bugs.
 metadata:
-  version: "0.1.0"
+  version: "0.2.0"
 ---
 
 # Code smells
@@ -37,7 +37,7 @@ If the check says the baseline was measured with other tools, this machine's ski
 
 ## `.smells.json`
 
-A project records its `languages` (`go`, `typescript`) and `files`: `include` contains git pathspecs such as `*.go` or `ui/*.ts`, `exclude` contains path prefixes, and `tests` contains regular expressions. The first `baseline` run fills in the remaining fields:
+A project records its `languages` (`go`, `typescript`) and `files`: `include` contains git pathspecs such as `*.go`, `ui/*.ts` or `ui/**/*.tsx`, `exclude` contains path prefixes, and `tests` contains regular expressions. The first `baseline` run fills in the remaining fields:
 
 - `budgets` contain the limits.
 - `caps` contain existing hotspots.

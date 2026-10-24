@@ -1,6 +1,6 @@
 # code-smells
 
-An agent skill that keeps a Go or TypeScript repository's code size, complexity, duplication and imports from growing past limits the repository records.
+An agent skill that keeps a Go or TypeScript repository's code size, complexity, duplication and imports from growing past limits the repository records. It measures `.ts` and `.tsx` files, but not `.d.ts` files.
 
 The design choice is one shared scanner in the skill. Each project keeps only a `.smells.json` file and a Makefile target, so every repository measures the same way and none installs the tools. The alternative, copying the scanner into every repository, was turned down because the copies drift apart.
 
@@ -33,7 +33,7 @@ An agent loads the name and description when a session starts. It loads `SKILL.m
 | Item | Characters | Tokens (about) |
 | --- | ---: | ---: |
 | Name and description, always loaded | 434 | 109 |
-| `SKILL.md`, loaded when used | 5,695 | 1,424 |
+| `SKILL.md`, loaded when used | 5,710 | 1,428 |
 | `bin/smells check`, passing | 115 | 29 |
 | `bin/smells check`, failing with two problems | 302 | 76 |
 | `bin/smells report`, ten worst functions | 1,077 | 270 |
@@ -111,7 +111,7 @@ This runs the scanner's tests and a smoke test of `bin/smells` on a copy of a fi
 Each measurement is an item with a whole-number value. It belongs to either the `production` or `tests` scope. Files that match `files.tests` are treated as tests.
 
 - `function_lines`: the number of lines of a function that hold code. Comment lines and blank lines do not count; lines of nested functions do. In Go, it measures declared functions and methods, named `path:Receiver.Name`. In TypeScript, it measures every function with a body and names it using the surrounding functions, such as `mount/render`. A callback is named after the call it is passed to, followed by that call’s first string argument, such as `test("sends")`. `#2`, `#3`, and later numbers distinguish functions with the same name.
-- `complexity`: for Go, this is gocognit’s cognitive complexity, including closures. For TypeScript, the value starts at 1 and adds 1 for each `if`, loop, `catch`, `case`, `?:`, `&&`, `||`, and `??` in the function itself. Functions nested inside it are not counted.
+- `complexity`: for Go, this is gocognit’s cognitive complexity, including closures. For TypeScript, the value starts at 1 and adds 1 for each `if`, loop, `catch`, `case`, `?:`, `&&`, `||`, and `??` in the function itself. Functions nested inside it are not counted. JSX counts like other code: a line that holds a JSX element is a code line, a JSX element adds nothing to complexity, and `&&`, `||`, `??` and `?:` inside JSX add 1 each.
 - `file_lines`: the number of lines in a source file.
 - `fan_out` (production only): the number of local packages (Go folders) or local modules (TypeScript files) imported by a package or module.
 - `duplicate_lines`: the number of lines in a file that belong to a repeated stretch of at least 100 tokens. Go uses dupl’s syntax clones. TypeScript looks for identical runs of 100 tokens while ignoring spaces and comments. Every file is compared with every other file.
