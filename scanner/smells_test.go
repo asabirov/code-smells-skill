@@ -91,7 +91,7 @@ func TestLooseningsNeedAnException(t *testing.T) {
 	if excepted(branch, want[0]) {
 		t.Fatal("an exception without an issue was accepted")
 	}
-	branch.Exceptions[0].Issue = "private-org/private-repo#1"
+	branch.Exceptions[0].Issue = "example/project#1"
 	if !excepted(branch, want[0]) {
 		t.Fatal("a complete exception was refused")
 	}
