@@ -47,3 +47,8 @@ the thing that string names actually works.
 It says what this does today, and it opens by naming the choice this design
 makes, the alternatives it turned down, and the fact that decided between them.
 A change is finished when that file matches what shipped.
+
+## A release moves the install tag
+
+The README install command names a release tag, and so does the Makefile example in the README.
+When you prepare a release, change both to the new tag in the release PR.
