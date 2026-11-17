@@ -112,7 +112,7 @@ A `SMELLS_SKILL` value already set in the environment, for example by a provisio
 make check
 ```
 
-This runs the scanner's tests and a smoke test of `bin/smells` on a copy of a fixture project. It needs Go and Bun. See [AGENTS.md](AGENTS.md) for the time budget. There is no CI workflow.
+This runs the scanner's tests and a smoke test of `bin/smells` on a copy of a fixture project. It needs Go and Bun. See [AGENTS.md](AGENTS.md) for the time budget. The `check` workflow in `.github/workflows/check.yml` runs the same command on each pull request and on each push to main.
 
 ## What is measured
 
