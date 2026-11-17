@@ -14,7 +14,6 @@ func testBaseline() *Baseline {
 	b := defaultBaseline()
 	b.Tools = map[string]string{"definitions": definitions}
 	b.Caps = map[string]map[string]map[string]int{production: {complexity: {"a.go:Big": 40}}}
-	b.Aggregate = map[string]map[string]Aggregate{production: {complexity: {Violations: 1, Excess: 25}}}
 	return b
 }
 
@@ -34,9 +33,9 @@ func TestCompare(t *testing.T) {
 	}{
 		{"within caps", map[string]int{"a.go:Big": 40, "a.go:Small": 15}, nil},
 		{"shrunk", map[string]int{"a.go:Big": 30}, nil},
-		{"grew by one", map[string]int{"a.go:Big": 41}, []string{"grew from 40 to 41", "the baseline allows"}},
-		{"new item", map[string]int{"a.go:Big": 40, "b.go:New": 16}, []string{"b.go:New is 16, over the limit of 15", "the baseline allows"}},
-		{"shrink pays for nothing", map[string]int{"a.go:Big": 20, "b.go:New": 16}, []string{"b.go:New is 16", "the baseline allows"}},
+		{"grew by one", map[string]int{"a.go:Big": 41}, []string{"grew from 40 to 41"}},
+		{"new item", map[string]int{"a.go:Big": 40, "b.go:New": 16}, []string{"b.go:New is 16, over the limit of 15"}},
+		{"shrink pays for nothing", map[string]int{"a.go:Big": 20, "b.go:New": 16}, []string{"b.go:New is 16"}},
 	}
 	for _, c := range cases {
 		problems, _ := compare(testBaseline(), testScan(c.values))
@@ -60,16 +59,35 @@ func TestCompareRefusesOtherTools(t *testing.T) {
 	}
 }
 
+// TestCapsStopGrowth shows that the per-item caps alone stop each case that the removed
+// aggregate totals used to stop: a new item over the limit, a capped item that grew,
+// and two new items where only one freed cap exists.
+func TestCapsStopGrowth(t *testing.T) {
+	b := testBaseline() // one cap: a.go:Big at 40, over the limit of 15
+	cases := []struct {
+		name   string
+		values map[string]int
+		want   string
+	}{
+		{"a new item over the limit", map[string]int{"a.go:Big": 40, "b.go:New": 16}, "b.go:New is 16, over the limit of 15"},
+		{"a capped item grew", map[string]int{"a.go:Big": 41}, "a.go:Big grew from 40 to 41"},
+		{"two new items take one freed cap", map[string]int{"b.go:One": 16, "b.go:Two": 17}, "over the limit of 15"},
+	}
+	for _, c := range cases {
+		problems, _ := compare(b, testScan(c.values))
+		if got := strings.Join(problems, "\n"); !strings.Contains(got, c.want) {
+			t.Errorf("%s: problems %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
 func TestCapsForOnlyLowers(t *testing.T) {
 	b := testBaseline()
-	caps, agg := capsFor(b, testScan(map[string]int{"a.go:Big": 30, "c.go:Fine": 3}), true)
+	caps := capsFor(b, testScan(map[string]int{"a.go:Big": 30, "c.go:Fine": 3}), true)
 	if got := caps[production][complexity]; len(got) != 1 || got["a.go:Big"] != 30 {
 		t.Fatalf("caps %v, want a.go:Big lowered to 30", got)
 	}
-	if got := agg[production][complexity]; got != (Aggregate{1, 15}) {
-		t.Fatalf("aggregate %v", got)
-	}
-	caps, _ = capsFor(b, testScan(map[string]int{"a.go:Big": 12}), true)
+	caps = capsFor(b, testScan(map[string]int{"a.go:Big": 12}), true)
 	if len(caps[production][complexity]) != 0 {
 		t.Fatalf("a fixed item kept its cap: %v", caps)
 	}
@@ -195,7 +213,7 @@ func TestNewDuplicateGroupFails(t *testing.T) {
 			}
 			b := defaultBaseline()
 			b.Tools = old.Tools
-			b.Caps, b.Aggregate = capsFor(b, old, false)
+			b.Caps = capsFor(b, old, false)
 			if problems, _ := compare(b, old); len(problems) != 0 {
 				t.Fatalf("the baselined code fails: %q", problems)
 			}
@@ -216,7 +234,6 @@ func TestNewDuplicateGroupFails(t *testing.T) {
 func TestFreedCapsGoBySize(t *testing.T) {
 	b := testBaseline()
 	b.Caps[production][complexity]["a.go:Other"] = 30
-	b.Aggregate[production][complexity] = Aggregate{Violations: 2, Excess: 40}
 	cases := []struct {
 		name   string
 		values map[string]int
@@ -296,16 +313,15 @@ func TestShrunkCapChain(t *testing.T) {
 			t.Fatalf("step %d: %q", i, problems)
 		}
 		next := testBaseline()
-		next.Caps, next.Aggregate = capsFor(b, s, true)
+		next.Caps = capsFor(b, s, true)
 		if got := loosenings(next, b, s); len(got) != 0 {
 			t.Fatalf("step %d loosens prior baseline: %q", i, got)
 		}
 		if got := loosenings(next, original, s); len(got) != 0 {
 			t.Fatalf("step %d loosens original baseline: %q", i, got)
 		}
-		was, now := b.Aggregate[production][complexity], next.Aggregate[production][complexity]
-		if now.Violations > was.Violations || now.Excess > was.Excess || len(next.Caps[production][complexity]) != 1 || next.Caps[production][complexity][id] != size {
-			t.Fatalf("step %d grew caps or totals: %+v", i, next)
+		if len(next.Caps[production][complexity]) != 1 || next.Caps[production][complexity][id] != size {
+			t.Fatalf("step %d grew caps: %+v", i, next)
 		}
 		values[id] = 15
 		values["c.go:TooBig"] = size + 1

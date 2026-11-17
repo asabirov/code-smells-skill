@@ -9,30 +9,20 @@ import (
 	"os"
 	"os/exec"
 	"reflect"
-	"runtime"
 	"slices"
 	"sort"
 	"strings"
 )
 
 // Baseline is .smells.json: the limits, and a cap for every item already over one.
-// MeasuredBy names the skill build and Go that last wrote it, for people only.
 type Baseline struct {
 	Tools      map[string]string                    `json:"tools"`
-	MeasuredBy string                               `json:"measured_by,omitempty"`
 	Languages  []string                             `json:"languages"`
 	Files      Rules                                `json:"files"`
 	Budgets    map[string]map[string]int            `json:"budgets"`
-	Aggregate  map[string]map[string]Aggregate      `json:"aggregate"`
 	Caps       map[string]map[string]map[string]int `json:"caps"`
 	Exceptions []Exception                          `json:"exceptions"`
-}
-
-// Aggregate is how many items in a scope and metric are over the limit, and by how much
-// in total, so a hotspot that shrinks cannot make room for a new one.
-type Aggregate struct {
-	Violations int `json:"violations"`
-	Excess     int `json:"excess"`
+	legacy     bool
 }
 
 // Exception allows one loosening compared with the default branch, such as a raised
@@ -76,8 +66,12 @@ func startBaseline() (b *Baseline, measured bool, err error) {
 		return nil, false, err
 	}
 	if src != nil {
-		if b, err = parseBaseline(src, baselinePath); err != nil || b.Tools != nil {
-			return b, err == nil, err
+		if b, err = parseBaseline(src, baselinePath); err != nil {
+			return nil, false, err
+		}
+		if b.Tools != nil {
+			b.legacy = hasLegacyKeys(src)
+			return b, true, nil
 		}
 	}
 	b = defaultBaseline()
@@ -87,6 +81,18 @@ func startBaseline() (b *Baseline, measured bool, err error) {
 		}
 	}
 	return b, false, detectFiles(b)
+}
+
+// hasLegacyKeys reports whether src holds aggregate or measured_by, which an older
+// skill wrote and the next baseline drops.
+func hasLegacyKeys(src []byte) bool {
+	var raw map[string]json.RawMessage
+	if json.Unmarshal(src, &raw) != nil {
+		return false
+	}
+	_, aggregate := raw["aggregate"]
+	_, measuredBy := raw["measured_by"]
+	return aggregate || measuredBy
 }
 
 func parseBaseline(src []byte, name string) (*Baseline, error) {
@@ -155,29 +161,13 @@ func compareMetric(b *Baseline, s *Scan, scope, metric string) (problems, notes 
 			notes = append(notes, fmt.Sprintf("%s %s: %s is %d, below its cap of %d; smells baseline can lower the cap", scope, metric, id, values[id], caps[id]))
 		}
 	}
-	now, was := aggregate(values, limit), b.Aggregate[scope][metric]
-	if now.Violations > was.Violations || now.Excess > was.Excess {
-		problems = append(problems, fmt.Sprintf("%s %s: %d over the limit by %d in total; the baseline allows %d over by %d",
-			scope, metric, now.Violations, now.Excess, was.Violations, was.Excess))
-	}
 	return problems, notes
-}
-
-func aggregate(values map[string]int, limit int) Aggregate {
-	var a Aggregate
-	for _, v := range values {
-		if v > limit {
-			a.Violations++
-			a.Excess += v - limit
-		}
-	}
-	return a
 }
 
 // inherit gives uncapped items in want caps freed by removal or reaching the limit.
 // An item may take a cap no smaller than its value. Smaller items choose first and each takes the smallest cap that fits,
 // so a function split in two can use two freed caps. The match is by size only, so a
-// new function may take a freed cap; the totals still cannot grow, and review
+// new function may take a freed cap; each freed cap covers one new item, and review
 // names it.
 func inherit(caps, want map[string]int, s *Scan, values map[string]int, limit int) map[string]string {
 	var free []string
@@ -232,15 +222,13 @@ func (s *Scan) measures(id string) bool {
 // capsFor caps every item now over its limit at its current value. When lowering, an
 // item keeps a cap only if it had one or took a freed cap; compare has already
 // refused anything new.
-func capsFor(b *Baseline, s *Scan, lowering bool) (map[string]map[string]map[string]int, map[string]map[string]Aggregate) {
+func capsFor(b *Baseline, s *Scan, lowering bool) map[string]map[string]map[string]int {
 	caps := map[string]map[string]map[string]int{}
-	aggregates := map[string]map[string]Aggregate{}
 	for scope, budgets := range b.Budgets {
-		caps[scope], aggregates[scope] = map[string]map[string]int{}, map[string]Aggregate{}
+		caps[scope] = map[string]map[string]int{}
 		for metric, limit := range budgets {
 			values := s.Values[scope][metric]
 			caps[scope][metric] = map[string]int{}
-			aggregates[scope][metric] = aggregate(values, limit)
 			moved := inherit(b.Caps[scope][metric], uncapped(values, b.Caps[scope][metric], limit), s, values, limit)
 			for id, v := range values {
 				_, had := b.Caps[scope][metric][id]
@@ -252,7 +240,7 @@ func capsFor(b *Baseline, s *Scan, lowering bool) (map[string]map[string]map[str
 			}
 		}
 	}
-	return caps, aggregates
+	return caps
 }
 
 // runBaseline writes .smells.candidate.json for a person to review and move into place.
@@ -271,18 +259,16 @@ func runBaseline() error {
 		return err
 	}
 	candidate := *b
-	candidate.MeasuredBy = measuredBy()
 	switch {
 	case !measured:
 		candidate.Tools = s.Tools
-		candidate.Caps, candidate.Aggregate = capsFor(b, s, false)
+		candidate.Caps = capsFor(b, s, false)
 	case !maps.Equal(b.Tools, s.Tools):
 		candidate.Tools = s.Tools
-		candidate.Caps, candidate.Aggregate = capsFor(b, s, false)
+		candidate.Caps = capsFor(b, s, false)
 		fmt.Printf("re-measured with %s; %s was measured with %s\n", formatMap(s.Tools), baselinePath, formatMap(b.Tools))
 		fmt.Printf("Against %s: ", baselinePath)
 		printChanges(os.Stdout, b, &candidate, s)
-		fmt.Println("Commit only this file, on a branch from the latest default branch: the check refuses a re-measure whose measured code differs from the default branch.")
 	default:
 		problems, notes := compare(b, s)
 		if len(problems) > 0 {
@@ -291,8 +277,8 @@ func runBaseline() error {
 			}
 			return fmt.Errorf("did not write %s, because the code is over %s; fix the code, or raise the cap by hand with an exception", candidatePath, baselinePath)
 		}
-		candidate.Caps, candidate.Aggregate = capsFor(b, s, true)
-		if reflect.DeepEqual([]any{b.Caps, b.Aggregate}, []any{candidate.Caps, candidate.Aggregate}) {
+		candidate.Caps = capsFor(b, s, true)
+		if reflect.DeepEqual(b.Caps, candidate.Caps) && !b.legacy {
 			fmt.Println("nothing to change:", baselinePath, "already matches the code")
 			return nil
 		}
@@ -305,10 +291,6 @@ func runBaseline() error {
 	}
 	fmt.Printf("wrote %s for %v in %v; review it, then run: mv %s %s\n", candidatePath, b.Languages, b.Files.Include, candidatePath, baselinePath)
 	return nil
-}
-
-func measuredBy() string {
-	return fmt.Sprintf("code-smells %s, %s", version, runtime.Version())
 }
 
 // defaultBranch names origin's default branch as git last fetched it, such as
@@ -324,10 +306,9 @@ func defaultBranch() string {
 const noDefaultBranch = "origin/HEAD is not set, so this repository's default branch is unknown; run git remote set-head origin --auto"
 
 // guard compares b with the baseline committed at ref: anything looser needs an
-// exception. A baseline measured by other tools than ref's is a re-measure: its caps
-// and totals cannot be compared with ref's, so it is accepted only when they are what
-// scan s measures and the measured code matches ref's. It reads what was last
-// fetched, so the check needs no network.
+// exception. A baseline measured by other tools than ref's is a re-measure, named in
+// the notes, and its caps are compared with ref's by the same rule. It reads what was
+// last fetched, so the check needs no network.
 func guard(b *Baseline, s *Scan, ref string) (old *Baseline, problems, notes []string) {
 	if ref == "" {
 		return nil, []string{noDefaultBranch + ", so the baseline cannot be compared with it"}, nil
@@ -343,46 +324,16 @@ func guard(b *Baseline, s *Scan, ref string) (old *Baseline, problems, notes []s
 	if err != nil {
 		return nil, []string{err.Error()}, nil
 	}
-	keys := loosenings(b, old, s)
 	if !maps.Equal(b.Tools, old.Tools) {
-		changed, err := codeChanged(b, ref)
-		if err != nil {
-			return old, []string{err.Error()}, nil
-		}
-		if changed {
-			return old, []string{fmt.Sprintf("this branch re-measures %s, but its measured code differs from %s; re-measure in a change of its own, on top of %s", baselinePath, ref, ref)}, nil
-		}
-		if caps, aggregates := capsFor(b, s, false); !reflect.DeepEqual([]any{caps, aggregates}, []any{b.Caps, b.Aggregate}) {
-			return old, []string{fmt.Sprintf("this branch re-measures %s, but its caps are not what smells baseline measures; run smells baseline and move the candidate into place", baselinePath)}, nil
-		}
 		notes = append(notes, fmt.Sprintf("this branch re-measures %s with %s (on %s: %s); smells review --base %s shows the old and new numbers",
 			baselinePath, formatMap(b.Tools), ref, formatMap(old.Tools), ref))
-		keys = slices.DeleteFunc(keys, func(k string) bool {
-			return k == "tools" || strings.HasPrefix(k, "caps/") || strings.HasPrefix(k, "aggregate/")
-		})
 	}
-	for _, key := range keys {
+	for _, key := range loosenings(b, old, s) {
 		if !excepted(b, key) {
 			problems = append(problems, fmt.Sprintf("%s is looser than on %s; tighten it, or add an exception for it with a reason and an issue", key, ref))
 		}
 	}
 	return old, problems, notes
-}
-
-// codeChanged says whether any file under files.include, or go.mod, which decides what
-// counts as a local import, differs from ref, including files git does not track yet.
-// go.mod is checked on its own, so an exclude pathspec in files.include cannot hide it.
-func codeChanged(b *Baseline, ref string) (bool, error) {
-	for _, paths := range [][]string{{"go.mod"}, b.Files.Include} {
-		if exec.Command("git", append([]string{"diff", "--quiet", ref, "--"}, paths...)...).Run() != nil {
-			return true, nil
-		}
-		out, err := exec.Command("git", append([]string{"ls-files", "--others", "--exclude-standard", "--"}, paths...)...).Output()
-		if err != nil || len(out) > 0 {
-			return len(out) > 0, err
-		}
-	}
-	return false, nil
 }
 
 func excepted(b *Baseline, key string) bool {
@@ -395,9 +346,6 @@ func excepted(b *Baseline, key string) bool {
 // it takes the cap of an item that scan s no longer measures and is no larger.
 func loosenings(b, old *Baseline, s *Scan) []string {
 	var keys []string
-	if !maps.Equal(b.Tools, old.Tools) {
-		keys = append(keys, "tools")
-	}
 	if !slices.Equal(b.Languages, old.Languages) || !slices.Equal(b.Files.Include, old.Files.Include) ||
 		!slices.Equal(b.Files.Exclude, old.Files.Exclude) || !slices.Equal(b.Files.Tests, old.Files.Tests) {
 		keys = append(keys, "files")
@@ -415,10 +363,6 @@ func looserMetric(b, old *Baseline, s *Scan, scope, metric string) []string {
 	path := scope + "/" + metric
 	if limit, ok := b.Budgets[scope][metric]; !ok || limit > old.Budgets[scope][metric] {
 		keys = append(keys, "budgets/"+path)
-	}
-	now, was := b.Aggregate[scope][metric], old.Aggregate[scope][metric]
-	if now.Violations > was.Violations || now.Excess > was.Excess {
-		keys = append(keys, "aggregate/"+path)
 	}
 	oldCaps, caps := old.Caps[scope][metric], b.Caps[scope][metric]
 	freed := maps.Clone(oldCaps)

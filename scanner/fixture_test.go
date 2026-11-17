@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -101,6 +102,45 @@ func TestFixturePasses(t *testing.T) {
 	}
 }
 
+// TestOldKeysLoadAndDrop proves that a .smells.json written by an earlier version,
+// with aggregate and measured_by, still loads, and that the next baseline drops them
+// even when the code is unchanged and the caps match.
+func TestOldKeysLoadAndDrop(t *testing.T) {
+	measured(t)
+	src, err := os.ReadFile(baselinePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(src, &raw); err != nil {
+		t.Fatal(err)
+	}
+	raw["aggregate"] = map[string]any{"production": map[string]any{"complexity": map[string]any{"violations": 1, "excess": 3}}}
+	raw["measured_by"] = "code-smells v0.2.0, go1.26.5"
+	withOld, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(baselinePath, withOld, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadBaseline(); err != nil {
+		t.Fatalf("an old .smells.json did not load: %v", err)
+	}
+	if err := runBaseline(); err != nil {
+		t.Fatal(err)
+	}
+	candidate, err := os.ReadFile(candidatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"aggregate", "measured_by"} {
+		if bytes.Contains(candidate, []byte(key)) {
+			t.Fatalf("the candidate still holds %s:\n%s", key, candidate)
+		}
+	}
+}
+
 func TestFixtureFailures(t *testing.T) {
 	describe, err := os.ReadFile("testdata/mixed/grade/describe.go")
 	if err != nil {
@@ -163,7 +203,7 @@ func TestReviewShowsWithoutFailing(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"The check fails with 2 problem(s)",
+		"The check fails with 1 problem(s)",
 		"looser: caps/production/complexity/grade/grade.go:Letter (",
 		"curving needs two more rules (example/mixed#7)",
 		"new: production complexity grade/more.go:Worse is",
@@ -352,14 +392,11 @@ func TestWrapperTakesFreedCap(t *testing.T) {
 }
 
 // TestRemeasure changes the tools main's baseline was measured with, as a new skill
-// version does: baseline writes a re-measured candidate, and the check accepts it only
-// in a branch that changes no measured code.
+// version does: baseline writes a re-measured candidate, and the check then compares the
+// re-measured caps with main's caps by the normal rule.
 func TestRemeasure(t *testing.T) {
 	measured(t)
-	editBaseline(t, func(b *Baseline) {
-		b.Tools["definitions"] = "0123456789abcdef"
-		b.Caps[production][complexity]["grade/grade.go:Letter"] -= 3
-	})
+	editBaseline(t, func(b *Baseline) { b.Tools["definitions"] = "0123456789abcdef" })
 	commit(t)
 	if err := runBaseline(); err != nil {
 		t.Fatal(err)
@@ -371,8 +408,8 @@ func TestRemeasure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b.Tools["definitions"] != definitions || !strings.Contains(b.MeasuredBy, "code-smells") {
-		t.Fatalf("the candidate was not re-measured: %v, %q", b.Tools, b.MeasuredBy)
+	if b.Tools["definitions"] != definitions {
+		t.Fatalf("the candidate was not re-measured: %v", b.Tools)
 	}
 	problems, notes, err := check()
 	if err != nil || len(problems) > 0 {
@@ -385,40 +422,20 @@ func TestRemeasure(t *testing.T) {
 	if err := review(&out, "origin/main"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "looser: caps/production/complexity/grade/grade.go:Letter (") {
-		t.Fatalf("review does not show the old and new cap:\n%s", out.String())
+	if !strings.Contains(out.String(), "The check passes") {
+		t.Fatalf("review of a matching re-measure:\n%s", out.String())
 	}
+	// A cap looser than main's needs an exception, like any other loosening.
 	editBaseline(t, func(b *Baseline) { b.Caps[production][complexity]["grade/grade.go:Letter"]++ })
-	if problems, _, _ := check(); !strings.Contains(strings.Join(problems, "\n"), "not what smells baseline measures") {
+	if problems, _, _ := check(); !strings.Contains(strings.Join(problems, "\n"), "is looser than on origin/main") {
 		t.Fatalf("a re-measure with a raised cap passed: %q", problems)
 	}
+	// The old rule refused a re-measure whose measured code changed; the normal rule now
+	// applies, so a change within the limits passes.
 	editBaseline(t, func(b *Baseline) { b.Caps[production][complexity]["grade/grade.go:Letter"]-- })
 	write(t, "grade/extra.go", "package grade\n\nfunc Extra() int { return 1 }\n")
-	if problems, _, _ := check(); !strings.Contains(strings.Join(problems, "\n"), "differs from origin/main") {
-		t.Fatalf("a re-measure with a code change passed: %q", problems)
-	}
-	if err := os.Remove("grade/extra.go"); err != nil {
-		t.Fatal(err)
-	}
-	editBaseline(t, func(b *Baseline) { b.Files.Include = append(b.Files.Include, ":(exclude)go.mod") })
-	commit(t)
-	if err := runBaseline(); err != nil {
-		t.Fatal(err)
-	}
-	editBaseline(t, func(b *Baseline) { b.Tools["definitions"] = "0123456789abcdef" })
-	commit(t)
-	if err := runBaseline(); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Rename(candidatePath, baselinePath); err != nil {
-		t.Fatal(err)
-	}
 	if problems, _, err := check(); err != nil || len(problems) > 0 {
-		t.Fatalf("check of a re-measure: %v %q", err, problems)
-	}
-	write(t, "go.mod", "module example.com/other\n\ngo 1.26\n")
-	if problems, _, _ := check(); !strings.Contains(strings.Join(problems, "\n"), "differs from origin/main") {
-		t.Fatalf("a re-measure with a go.mod change passed: %q", problems)
+		t.Fatalf("a re-measure with a code change failed: %v %q", err, problems)
 	}
 }
 
