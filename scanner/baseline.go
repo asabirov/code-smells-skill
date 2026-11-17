@@ -22,6 +22,7 @@ type Baseline struct {
 	Budgets    map[string]map[string]int            `json:"budgets"`
 	Caps       map[string]map[string]map[string]int `json:"caps"`
 	Exceptions []Exception                          `json:"exceptions"`
+	legacy     bool
 }
 
 // Exception allows one loosening compared with the default branch, such as a raised
@@ -65,8 +66,12 @@ func startBaseline() (b *Baseline, measured bool, err error) {
 		return nil, false, err
 	}
 	if src != nil {
-		if b, err = parseBaseline(src, baselinePath); err != nil || b.Tools != nil {
-			return b, err == nil, err
+		if b, err = parseBaseline(src, baselinePath); err != nil {
+			return nil, false, err
+		}
+		if b.Tools != nil {
+			b.legacy = hasLegacyKeys(src)
+			return b, true, nil
 		}
 	}
 	b = defaultBaseline()
@@ -76,6 +81,18 @@ func startBaseline() (b *Baseline, measured bool, err error) {
 		}
 	}
 	return b, false, detectFiles(b)
+}
+
+// hasLegacyKeys reports whether src holds aggregate or measured_by, which an older
+// skill wrote and the next baseline drops.
+func hasLegacyKeys(src []byte) bool {
+	var raw map[string]json.RawMessage
+	if json.Unmarshal(src, &raw) != nil {
+		return false
+	}
+	_, aggregate := raw["aggregate"]
+	_, measuredBy := raw["measured_by"]
+	return aggregate || measuredBy
 }
 
 func parseBaseline(src []byte, name string) (*Baseline, error) {
@@ -261,7 +278,7 @@ func runBaseline() error {
 			return fmt.Errorf("did not write %s, because the code is over %s; fix the code, or raise the cap by hand with an exception", candidatePath, baselinePath)
 		}
 		candidate.Caps = capsFor(b, s, true)
-		if reflect.DeepEqual(b.Caps, candidate.Caps) {
+		if reflect.DeepEqual(b.Caps, candidate.Caps) && !b.legacy {
 			fmt.Println("nothing to change:", baselinePath, "already matches the code")
 			return nil
 		}

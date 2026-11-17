@@ -103,7 +103,8 @@ func TestFixturePasses(t *testing.T) {
 }
 
 // TestOldKeysLoadAndDrop proves that a .smells.json written by an earlier version,
-// with aggregate and measured_by, still loads, and that the next baseline drops them.
+// with aggregate and measured_by, still loads, and that the next baseline drops them
+// even when the code is unchanged and the caps match.
 func TestOldKeysLoadAndDrop(t *testing.T) {
 	measured(t)
 	src, err := os.ReadFile(baselinePath)
@@ -126,11 +127,6 @@ func TestOldKeysLoadAndDrop(t *testing.T) {
 	if _, err := loadBaseline(); err != nil {
 		t.Fatalf("an old .smells.json did not load: %v", err)
 	}
-	grade, err := os.ReadFile("grade/grade.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	write(t, "grade/grade.go", strings.Replace(string(grade), "case score > 85 && curved:", "case score > 85:", 1))
 	if err := runBaseline(); err != nil {
 		t.Fatal(err)
 	}
