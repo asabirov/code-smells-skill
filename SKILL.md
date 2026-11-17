@@ -2,7 +2,7 @@
 name: code-smells
 description: Keep a Go or TypeScript repository's code size, complexity, duplication and imports from growing past limits recorded in the repository. Use when asked to run or fix a smell check, set smell limits in a repository that has none, lower limits after a refactor, review a pull request for code growth, or survey an unfamiliar Go or TypeScript repository. Not for style linting, formatting or finding bugs.
 metadata:
-  version: "0.2.0"
+  version: "0.3.0"
 ---
 
 # Code smells

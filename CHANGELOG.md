@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.0 — 2026-11-17
+
+### Removed
+
+- **Totals.** `.smells.json` no longer has `aggregate`, and `check` no longer compares totals. The per-item caps stop each case that the totals stopped. A failing check prints one line less.
+- **Measured-by record.** `.smells.json` no longer has `measured_by`.
+
+### Changed
+
+- **Re-measure.** When `tools` differ from the default branch, a re-measure uses the normal rule. A tighter cap passes, and a looser or new cap needs an exception. The special path that compared every measured file and `go.mod` with the default branch is gone.
+- **Old keys.** A `.smells.json` that still has `aggregate` or `measured_by` loads with no error. The next `baseline` drops the keys, also when the code does not change.
+- **Shorter text.** `SKILL.md` gives the cap-passing rule and the re-measure steps in fewer words. The README is shorter, and `docs/metrics.md` holds the metric definitions.
+
 ## 0.2.0 — 2026-10-24
 
 ### Added
