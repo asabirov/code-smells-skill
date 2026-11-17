@@ -90,7 +90,13 @@ func sum(values map[string]int) int {
 }
 
 func over(values map[string]int, limit int) int {
-	return aggregate(values, limit).Violations
+	n := 0
+	for _, v := range values {
+		if v > limit {
+			n++
+		}
+	}
+	return n
 }
 
 func most(values map[string]int) int {
@@ -167,7 +173,7 @@ func reviewBaseline(w io.Writer, base string, old, b *Baseline, s *Scan) {
 // printChanges lists how b differs from old, with the old and new numbers.
 func printChanges(w io.Writer, old, b *Baseline, s *Scan) {
 	looser := loosenings(b, old, s)
-	tighter := slices.DeleteFunc(loosenings(old, b, s), func(k string) bool { return k == "tools" })
+	tighter := loosenings(old, b, s)
 	fmt.Fprintf(w, "%d looser, %d tighter.\n", len(looser), len(tighter))
 	for _, key := range looser {
 		fmt.Fprintf(w, "  looser: %s%s\n", key, change(key, old, b))
@@ -177,11 +183,8 @@ func printChanges(w io.Writer, old, b *Baseline, s *Scan) {
 	}
 }
 
-// change shows the old and new value of a cap, budget, aggregate or tools key.
+// change shows the old and new value of a cap or budget key.
 func change(key string, old, b *Baseline) string {
-	if key == "tools" {
-		return fmt.Sprintf(" (%s -> %s)", formatMap(old.Tools), formatMap(b.Tools))
-	}
 	parts := strings.SplitN(key, "/", 4)
 	if len(parts) < 3 {
 		return ""
@@ -193,9 +196,6 @@ func change(key string, old, b *Baseline) string {
 			if v, ok := bl.Budgets[scope][metric]; ok {
 				return fmt.Sprint(v)
 			}
-		case "aggregate":
-			a := bl.Aggregate[scope][metric]
-			return fmt.Sprintf("%d items over by %d", a.Violations, a.Excess)
 		case "caps":
 			if v, ok := bl.Caps[scope][metric][parts[len(parts)-1]]; ok {
 				return fmt.Sprint(v)

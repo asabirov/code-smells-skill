@@ -21,19 +21,18 @@ metadata:
 ## The rules the check enforces
 
 - If a function, file or package already exceeds a limit, `.smells.json` records a cap for it. The code may become smaller, but it must not grow beyond that cap.
-- When a capped item is removed or drops to or below its limit, a new item in the same scope and metric may take its cap if it is not larger. The match uses size only, so code may move, be renamed, shrink, move to another package, or split into two items in one change. `check` notes the change, `baseline` moves the cap to the new name, and `review` lists the new name and the cap it took. Keeping the old name as a thin wrapper can therefore pass without an exception. This helps the reviewer see when an unrelated function has taken a cap. Caps stay with names whose items still exceed the limit, so swapping the names of two capped functions fails; move their caps by hand.
+- When a capped item is removed or drops to or below its limit, a new item in the same scope and metric may take its cap if it is not larger; each freed cap covers one new item. The match is by size only, so moved or renamed code passes, `check` notes the move, and `review` names the item that took the cap.
 - New code must remain within these limits: 80 lines of code per function (comment and blank lines do not count), 500 lines per file, complexity 15, 8 local imports per package, no duplicated stretch of 100 tokens, and no import cycle.
-- The number of items above each limit, and their total excess, must not increase. Each freed cap can cover only one new item, no larger than that cap.
 - A branch's `.smells.json` must not be looser than the version on the default branch (`origin/HEAD`), unless `exceptions` lists the loosened key with a `reason` and an `issue`.
 - The scan fails if it finds a file it cannot parse, or if a listed language has no files or no functions.
 - The baseline records the measuring tools in `tools`, including a `definitions` hash of the measuring code. If this skill measures code differently, the check fails and names both sets of tools.
-- A baseline measured with other tools than the default branch's is a re-measure. The check accepts it only when every measured file and `go.mod` match the default branch and its caps are exactly what `baseline` measures.
+- A baseline whose `tools` differ from the default branch's is a re-measure. The check compares its caps by the normal rule: a tighter cap passes, and a looser or new cap needs an exception.
 
 ## Fixing a failed check
 
 If code has grown, split or simplify it; do not raise its cap. If the growth is genuinely required, raise the cap by hand and add an exception with the reason and the issue. A reviewer must then decide whether to accept it.
 
-If the check says the baseline was measured with other tools, this machine's skill measures differently from the one that wrote the baseline. Re-measure it on a branch of its own, started from the latest default branch: run `bin/smells baseline`, read the old and new numbers it prints, move the candidate into place, and commit only that file. A reviewer sees the same numbers in `bin/smells review`.
+If the check says the baseline was measured with other tools, this machine's skill measures differently from the one that wrote the baseline. Re-measure it with `bin/smells baseline` on a branch from the latest default branch, read the old and new numbers it prints, then move the candidate into place and commit it. A cap that grew in the re-measure needs an exception like any other loosening.
 
 ## `.smells.json`
 
@@ -41,9 +40,7 @@ A project records its `languages` (`go`, `typescript`) and `files`: `include` co
 
 - `budgets` contain the limits.
 - `caps` contain existing hotspots.
-- `aggregate` contains totals for each limit.
 - `tools` contains the measuring versions.
-- `measured_by` names the skill build and Go version that last wrote the file. It is for people and is not compared.
 
 ## In a review
 

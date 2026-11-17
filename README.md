@@ -12,8 +12,7 @@ A function that got worse becomes a failed command that an agent can read and fi
 
 ```text
 smell: production complexity: baseline.go:guard is 19, over the limit of 15
-smell: production complexity: 1 over the limit by 4 in total; the baseline allows 0 over by 0
-smells (code-smells bca927573fa9, build bb70b8a8433bd6d5): the smell check failed with 2 problem(s); the limits are in .smells.json
+smells (code-smells bca927573fa9, build bb70b8a8433bd6d5): the smell check failed with 1 problem(s); the limits are in .smells.json
 ```
 
 The fix moved the two checks into a new function, `sizeNotes`. `guard` went back to complexity 15, and the check exits 0:
@@ -31,9 +30,9 @@ An agent loads the name and description when a session starts, and `SKILL.md` on
 | Item | Characters | Tokens (about) |
 | --- | ---: | ---: |
 | Name and description, always loaded | 434 | 109 |
-| `SKILL.md`, loaded when used | 5,710 | 1,428 |
+| `SKILL.md`, loaded when used | 4,989 | 1,248 |
 | `bin/smells check`, passing | 115 | 29 |
-| `bin/smells check`, failing with two problems | 302 | 76 |
+| `bin/smells check`, failing with one problem | 208 | 52 |
 | `bin/smells report`, ten worst functions | 1,077 | 270 |
 | `bin/smells review`, passing | 747 | 187 |
 | `bin/smells review`, failing | 993 | 249 |
