@@ -95,7 +95,7 @@ smell-check smell-report smell-baseline:
 make check
 ```
 
-This runs the scanner's tests and a smoke test of `bin/smells` on a copy of a fixture project. It needs Go and Bun. [AGENTS.md](AGENTS.md) gives the time budget. The `check` workflow in `.github/workflows/check.yml` runs the same command on each pull request and on each push to main.
+This runs the scanner's tests and a smoke test of `bin/smells` on a copy of a fixture project. It needs Go and Bun. [AGENTS.md](AGENTS.md) gives the time budget. Run it locally before you open a pull request. GitHub does not run it.
 
 ## What is measured
 
