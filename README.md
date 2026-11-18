@@ -78,7 +78,7 @@ A project can run the check from its Makefile. A `SMELLS_SKILL` value already se
 ```make
 SMELLS_SKILL ?= $(firstword $(wildcard $(CURDIR)/.agents/skills/code-smells $(CURDIR)/.claude/skills/code-smells $(HOME)/.agents/skills/code-smells $(HOME)/.claude/skills/code-smells))
 smell-check smell-report smell-baseline:
-	@test -x "$(SMELLS_SKILL)/bin/smells" || { echo "The code-smells skill is not installed, so the smell check cannot run. Install it with npx skills add https://github.com/asabirov/code-smells-skill/tree/v0.3.0 --skill code-smells --agent claude-code codex --global, or set SMELLS_SKILL to its folder." >&2; exit 1; }
+	@test -x "$(SMELLS_SKILL)/bin/smells" || { echo "The code-smells skill is not installed, so the smell check cannot run. Install it with DO_NOT_TRACK=1 npx skills add https://github.com/asabirov/code-smells-skill/tree/v0.3.0 --skill code-smells --agent claude-code codex --global, or set SMELLS_SKILL to its folder." >&2; exit 1; }
 	"$(SMELLS_SKILL)/bin/smells" $(subst smell-,,$@)
 ```
 
