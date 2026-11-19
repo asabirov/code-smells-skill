@@ -40,7 +40,7 @@ An agent loads the name and description when a session starts, and `SKILL.md` on
 Install the latest version:
 
 ```sh
-DO_NOT_TRACK=1 npx skills add https://github.com/asabirov/code-smells-skill --skill code-smells --agent claude-code codex --global
+DO_NOT_TRACK=1 npx skills add https://github.com/asabirov/code-smells-skill --skill code-smells --agent claude-code codex --global -y
 ```
 
 Update it later:
@@ -55,7 +55,7 @@ DO_NOT_TRACK=1 npx skills update code-smells --global
 - `--global` installs the skill for your user, because the scanner measures a skill inside a project as part of that project. For a project install, add the skill's folder to `files.exclude` in `.smells.json`, for example `".agents/skills/code-smells/"`.
 - `DO_NOT_TRACK=1` turns off the telemetry of the [skills CLI](https://github.com/vercel-labs/skills).
 - The command installs the main branch. A new skill version can measure differently, so an update can make a passing check fail. To keep one version, install from the tag of a [release](https://github.com/asabirov/code-smells-skill/releases). `metadata.version` in the `SKILL.md` frontmatter gives the version.
-- To remove the skill, run `DO_NOT_TRACK=1 npx skills remove --global code-smells`.
+- To remove the skill, run `DO_NOT_TRACK=1 npx skills remove --global code-smells -y`.
 
 Then ask your agent, for example: "Add a smell baseline to this repository and run the check."
 
@@ -88,7 +88,7 @@ A project can run the check from its Makefile. A `SMELLS_SKILL` value already se
 ```make
 SMELLS_SKILL ?= $(firstword $(wildcard $(CURDIR)/.agents/skills/code-smells $(CURDIR)/.claude/skills/code-smells $(HOME)/.agents/skills/code-smells $(HOME)/.claude/skills/code-smells))
 smell-check smell-report smell-baseline:
-	@test -x "$(SMELLS_SKILL)/bin/smells" || { echo "The code-smells skill is not installed, so the smell check cannot run. Install it with DO_NOT_TRACK=1 npx skills add https://github.com/asabirov/code-smells-skill --skill code-smells --agent claude-code codex --global, or set SMELLS_SKILL to its folder." >&2; exit 1; }
+	@test -x "$(SMELLS_SKILL)/bin/smells" || { echo "The code-smells skill is not installed, so the smell check cannot run. Install it with DO_NOT_TRACK=1 npx skills add https://github.com/asabirov/code-smells-skill --skill code-smells --agent claude-code codex --global -y, or set SMELLS_SKILL to its folder." >&2; exit 1; }
 	"$(SMELLS_SKILL)/bin/smells" $(subst smell-,,$@)
 ```
 
